@@ -11,15 +11,16 @@ function renderClassProfile() {
   const ci = CLASS_INFO[cls], cp = CLASS_PROFILE[cls];
   const el = document.getElementById("b-class-profile");
   if(!el || !cp) { if(el) el.innerHTML=""; return; }
+  // Column headers come from GAME.terms.profileCols (pack-driven) with a
+  // fallback to LaserStorm's columns so a pack that omits them still renders.
+  const cols = (GAME.terms && GAME.terms.profileCols) || [
+    {key:"save",label:"Save"},{key:"dtime",label:"Double-Time"},{key:"assault",label:"Assault"},
+    {key:"vuln",label:"Vulnerable"},{key:"snap",label:"Snap"},{key:"transport",label:"Transport"},
+  ];
   el.innerHTML = `
-    <div class="cp-head"><i class="fa-solid fa-circle-info"></i> <b>${cp.cat}</b> represents ${cp.represents} &bull; <span style="color:var(--text-faint)">read-only class rules</span></div>
+    <div class="cp-head"><i class="fa-solid fa-circle-info"></i> <b>${cp.cat}</b> represents ${cp.represents} &bull; <span style="color:var(--text-faint)">${T("classRules")}</span></div>
     <div class="cp-tags">
-      <span class="cp-tag"><b>Save</b><span>${cp.save}</span></span>
-      <span class="cp-tag"><b>Double-Time</b><span>${cp.dtime}</span></span>
-      <span class="cp-tag"><b>Assault</b><span>${cp.assault}</span></span>
-      <span class="cp-tag"><b>Vulnerable</b><span>${cp.vuln}</span></span>
-      <span class="cp-tag"><b>Snap</b><span>${cp.snap}</span></span>
-      <span class="cp-tag"><b>Transport</b><span>${cp.transport}</span></span>
+      ${cols.map(c=>`<span class="cp-tag"><b>${esc(c.label)}</b><span>${cp[c.key]!=null?cp[c.key]:""}</span></span>`).join("")}
     </div>`;
 }
 
@@ -407,6 +408,23 @@ function esc(s) {
   return String(s==null?"":s)
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+// User-facing term lookup. Reads GAME.terms; falls back to a built-in default
+// so a pack that omits a term still renders a sane word instead of "undefined".
+// These defaults are LaserStorm's vocabulary (the historical wording), so the
+// engine behaves identically for a pack with no terms block.
+const _TERM_FALLBACK = {
+  stand:"Stand", stands:"Stands", standTraits:"Stand Traits",
+  taskForce:"Task Force", taskForces:"Task Forces",
+  taskForceType:"Task Force Type", taskForceTypes:"Task Force Types",
+  commander:"Commander",
+  battleGroup:"Battle Group", battleGroups:"Battle Groups",
+  army:"Army", armies:"Armies",
+  force:"Expeditionary Force", forces:"Expeditionary Forces",
+  classRules:"read-only class rules",
+};
+function T(key) {
+  return (GAME.terms && GAME.terms[key] != null) ? GAME.terms[key] : (_TERM_FALLBACK[key] || key);
 }
 
 function confirmBtn(btn, action, ms=5000) {
@@ -906,11 +924,11 @@ const EXPORT_CATS = [
   { key:"customFactions",       label:"Factions",             icon:"flag",           name:f=>f.name, meta:()=>"" },
   { key:"customTraits",         label:"Custom Traits",        icon:"star",           name:t=>t.name, meta:t=>(t.cost>=0?"+":"")+t.cost+"p" },
   { key:"customUnits",          label:"Units",                icon:"chess-pawn",     name:u=>u.name, meta:u=>factionName(u.faction)||"" },
-  { key:"customTFTypes",        label:"Task Force Types",             icon:"gear",           name:t=>t.name, meta:()=>"" },
+  { key:"customTFTypes",        label:T("taskForceTypes"),    icon:"gear",           name:t=>t.name, meta:()=>"" },
   { key:"customTacticalAssets", label:"Tactical Assets",      icon:"bolt",           name:a=>a.name, meta:()=>"" },
-  { key:"taskForces",           label:"Task Forces",          icon:"users",          name:t=>t.name, meta:t=>(t.units||[]).length+" slot"+((t.units||[]).length!==1?"s":"") },
-  { key:"armies",               label:"Armies",               icon:"chess-rook",     name:a=>a.name, meta:a=>isFreePick(a)?"Free Pick":"Task Force" },
-  { key:"expeditionaryForces",  label:"Expeditionary Forces", icon:"earth-americas", name:f=>f.name, meta:f=>(f.armyGroups||[]).length+" group"+((f.armyGroups||[]).length!==1?"s":"") },
+  { key:"taskForces",           label:T("taskForces"),        icon:"users",          name:t=>t.name, meta:t=>(t.units||[]).length+" slot"+((t.units||[]).length!==1?"s":"") },
+  { key:"armies",               label:T("armies"),            icon:"chess-rook",     name:a=>a.name, meta:a=>isFreePick(a)?"Free Pick":T("taskForce") },
+  { key:"expeditionaryForces",  label:T("forces"),            icon:"earth-americas", name:f=>f.name, meta:f=>(f.armyGroups||[]).length+" group"+((f.armyGroups||[]).length!==1?"s":"") },
 ];
 let _exportSel = {};        // { catKey: Set(ids) } - items the user ticked
 let _exportOpenCats = {};   // { catKey: bool }     - which categories are expanded
@@ -3955,7 +3973,7 @@ function selectTF(id) {
 function renderTFDetail() {
   const panel = document.getElementById("tf-detail-panel");
   const tf = state.taskForces.find(t=>t.id===currentTFId);
-  if(!tf) { panel.innerHTML = `<div class="card"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-users"></i></div>Select a Task Force to edit</div></div>`; return; }
+  if(!tf) { panel.innerHTML = `<div class="card"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-users"></i></div>Select a ${T("taskForce")} to edit</div></div>`; return; }
   const pts = tfPoints(tf);
   const sections = [
     {role:"core",       label:"Core Units",       short:"Core",        shClass:"sh-core"},
@@ -4242,7 +4260,7 @@ function openNewTFModal(fromTemplate) {
   if(tmpl) {
     titleEl.innerHTML = `New Task Force <span style="font-size:11px;color:var(--accent);font-family:var(--font-body);font-weight:normal;letter-spacing:0;text-transform:none;margin-left:6px"><i class="fa-solid fa-layer-group"></i> from "${esc(tmpl.name)}"</span>`;
   } else {
-    titleEl.textContent = "New Task Force";
+    titleEl.textContent = `New ${T("taskForce")}`;
   }
   document.getElementById("tf-modal-submit").textContent = "Create";
   _populateTFTypeSelect(document.getElementById("tf-type"), tmpl?.tfType || "infantry");
@@ -4259,7 +4277,7 @@ function openEditTFModal(id) {
   document.getElementById("tf-notes").value = tf.notes || "";
   document.getElementById("tf-points-limit").value = tf.pointsLimit || "";
   clearFieldErr("tf-new-name"); clearFieldErr("tf-commander");
-  document.getElementById("modal-tf-title").textContent = "Edit Task Force";
+  document.getElementById("modal-tf-title").textContent = `Edit ${T("taskForce")}`;
   document.getElementById("tf-modal-submit").textContent = "Save Changes";
   _populateTFTypeSelect(document.getElementById("tf-type"), tf.tfType || "infantry");
   _populateFactionSelect(document.getElementById("tf-faction"), tf.faction || "");
@@ -4301,8 +4319,8 @@ function createTaskForce() {
   const name = document.getElementById("tf-new-name").value.trim();
   const commander = document.getElementById("tf-commander").value.trim();
   let invalid = false;
-  if(!name)      { showFieldErr("tf-new-name","Task Force name is required."); invalid=true; }
-  if(!commander) { showFieldErr("tf-commander","Task Force Commander name is required."); invalid=true; }
+  if(!name)      { showFieldErr("tf-new-name",`${T("taskForce")} name is required.`); invalid=true; }
+  if(!commander) { showFieldErr("tf-commander",`${T("taskForce")} ${T("commander")} name is required.`); invalid=true; }
   if(invalid) { if(!name) document.getElementById("tf-new-name").focus(); return; }
   const tfType = document.getElementById("tf-type").value;
   const faction = document.getElementById("tf-faction").value;
@@ -4564,7 +4582,7 @@ function openCustomTFTypeModal() {
   editingCustomTFTypeId = null;
   clearFieldErr("custom-tf-type-name"); clearFieldErr("custom-tf-type-slots");
   document.getElementById("custom-tf-type-name").value = "";
-  document.getElementById("custom-tf-type-form-title").textContent = "New Task Force Type";
+  document.getElementById("custom-tf-type-form-title").textContent = T("taskForceType");
   document.getElementById("custom-tf-type-submit").textContent = "Create";
   document.getElementById("custom-tf-type-cancel").style.display = "none";
   _renderCustomTFTypeSlots({});
@@ -4576,7 +4594,7 @@ function cancelEditCustomTFType() {
   editingCustomTFTypeId = null;
   clearFieldErr("custom-tf-type-name"); clearFieldErr("custom-tf-type-slots");
   document.getElementById("custom-tf-type-name").value = "";
-  document.getElementById("custom-tf-type-form-title").textContent = "New Task Force Type";
+  document.getElementById("custom-tf-type-form-title").textContent = T("taskForceType");
   document.getElementById("custom-tf-type-submit").textContent = "Create";
   document.getElementById("custom-tf-type-cancel").style.display = "none";
   _renderCustomTFTypeSlots({});
@@ -4635,7 +4653,7 @@ function editCustomTFType(id) {
   editingCustomTFTypeId = id;
   clearFieldErr("custom-tf-type-name"); clearFieldErr("custom-tf-type-slots");
   document.getElementById("custom-tf-type-name").value = t.name;
-  document.getElementById("custom-tf-type-form-title").textContent = "Edit Task Force Type";
+  document.getElementById("custom-tf-type-form-title").textContent = `Edit ${T("taskForceType")}`;
   document.getElementById("custom-tf-type-submit").textContent = "Save Changes";
   document.getElementById("custom-tf-type-cancel").style.display = "";
   _renderCustomTFTypeSlots(t.slots||{});
@@ -4656,7 +4674,7 @@ function saveCustomTFType() {
     const t = state.customTFTypes.find(x=>x.id===editingCustomTFTypeId);
     if(t) { t.name = name; t.slots = slots; }
     editingCustomTFTypeId = null;
-    document.getElementById("custom-tf-type-form-title").textContent = "New Task Force Type";
+    document.getElementById("custom-tf-type-form-title").textContent = T("taskForceType");
     document.getElementById("custom-tf-type-submit").textContent = "Create";
     document.getElementById("custom-tf-type-cancel").style.display = "none";
   } else {
@@ -4682,7 +4700,7 @@ function deleteCustomTFType(id) {
   if(editingCustomTFTypeId===id) {
     editingCustomTFTypeId = null;
     clearFieldErr("custom-tf-type-name"); clearFieldErr("custom-tf-type-slots");
-    document.getElementById("custom-tf-type-form-title").textContent = "New Task Force Type";
+    document.getElementById("custom-tf-type-form-title").textContent = T("taskForceType");
     document.getElementById("custom-tf-type-submit").textContent = "Create";
     document.getElementById("custom-tf-type-cancel").style.display = "none";
     document.getElementById("custom-tf-type-name").value = "";
@@ -4919,7 +4937,7 @@ function _parseImportTFText() {
   const d = payload.data;
   const tf = d.taskForce||{};
   const parts = [
-    `<strong>${esc(tf.name||"Unnamed Task Force")}</strong>`,
+    `<strong>${esc(tf.name||`Unnamed ${T("taskForce")}`)}</strong>`,
     tf.tfType ? `type: ${esc(_tfTypeLabel(tf.tfType))}` : null,
     tf.faction ? `faction: ${esc(factionName(tf.faction)||tf.faction)}` : null,
     d.customUnits&&d.customUnits.length ? `${d.customUnits.length} custom unit${d.customUnits.length!==1?"s":""}` : null,
