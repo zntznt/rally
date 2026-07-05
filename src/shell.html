@@ -471,28 +471,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
           </div>
           <div class="form-group">
             <label>Class</label>
-            <select id="b-class" onchange="onClassChange()" style="width:auto">
-              <option value="inf">Infantry</option>
-              <option value="cav">Cavalry</option>
-              <option value="scout">Scout</option>
-              <option value="fg">Field Gun</option>
-              <option value="afv">AFV (Tank)</option>
-              <option value="ac">Aircraft</option>
-              <option value="sh">Super Heavy</option>
-              <option value="beh">Behemoth</option>
-            </select>
+            <!-- Options are generated from GAME.classes by rebuildClassSelect() at boot. -->
+            <select id="b-class" onchange="onClassChange()" style="width:auto"></select>
           </div>
           <div class="form-group">
             <label>Faction</label>
-            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()">
-              <option value="">No Faction</option>
-              <option value="standard">Standard</option>
-              <option value="precursor">Precursor</option>
-              <option value="soulless">Soulless</option>
-              <option value="swarm">Swarm</option>
-              <option value="warrior">Warrior</option>
-              <option value="__new__">+ New Faction…</option>
-            </select>
+            <!-- Options are generated from GAME.factions.labels by rebuildFactionSelect() at boot. -->
+            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()"></select>
           </div>
           <div class="form-group" style="flex:0 0 auto">
             <label>Size <span id="b-size-hint" style="font-weight:normal;color:var(--text-dim);font-size:9px;text-transform:none;letter-spacing:0">(def 6)</span></label>

@@ -1863,7 +1863,8 @@ function setEditMode(unit) {
 function resetBuilder() {
   document.getElementById("b-name").value = "";
   document.getElementById("b-description").value = "";
-  document.getElementById("b-class").value = "inf";
+  // First class key from the GAME pack, not a hardcoded "inf".
+  document.getElementById("b-class").value = Object.keys(GAME.classes)[0];
   document.getElementById("b-faction").value = "";
   builderFactionPrev = "";
   builderMobilityPrev = "";
@@ -2490,10 +2491,9 @@ function rebuildFactionSelect(selectValue) {
   // Default to keeping the current selection - rebuilding while a unit is on
   // the builder must not silently reset its faction to "No Faction".
   if(selectValue === undefined) selectValue = sel.value;
-  const builtins = [
-    {v:"standard",l:"Standard"},{v:"precursor",l:"Precursor"},
-    {v:"soulless",l:"Soulless"},{v:"swarm",l:"Swarm"},{v:"warrior",l:"Warrior"}
-  ];
+  // Built-in factions come from the GAME pack, not a hardcoded list, so a
+  // different game ships different factions without touching the engine.
+  const builtins = Object.entries(GAME.factions.labels || {}).map(([v,l]) => ({v,l}));
   sel.innerHTML = `<option value="">No Faction</option>`
     + builtins.map(b=>`<option value="${b.v}">${b.l}</option>`).join("")
     + (state.customFactions||[]).map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("")
@@ -2501,6 +2501,18 @@ function rebuildFactionSelect(selectValue) {
   sel.value = selectValue;
   if(sel.value !== selectValue) sel.value = "";   // selected faction was deleted
   builderFactionPrev = sel.value;
+}
+
+// Populate the builder's Class <select> from GAME.classes rather than a
+// hardcoded HTML option list, so a different game's classes appear without
+// editing the shell. Preserves the current selection across rebuilds.
+function rebuildClassSelect(selectValue) {
+  const sel = document.getElementById("b-class");
+  if(!sel) return;
+  if(selectValue === undefined) selectValue = sel.value;
+  sel.innerHTML = Object.entries(GAME.classes || {})
+    .map(([k,ci]) => `<option value="${k}">${esc(ci.label || k)}</option>`).join("");
+  if(selectValue && GAME.classes[selectValue]) sel.value = selectValue;
 }
 
 // Removes traits from traitArr that fail faction/class/mobility/traitr requirements.
@@ -8468,6 +8480,7 @@ function renderAll() {
 
 loadState();
 renderBuilderStatInputs();   // build the stat inputs from GAME.schema before anything touches them
+rebuildClassSelect();        // populate Class <select> from GAME.classes before resetBuilder reads it
 resetBuilder();
 rebuildFactionSelect();
 
