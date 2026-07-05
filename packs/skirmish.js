@@ -277,10 +277,13 @@ GAME.schema = {
       titles, section headers) are still literal "Task Force"/"Stand" - they're
       static HTML with no T() access. Making them pack-driven needs element ids +
       a boot-time textContent sweep. Follow-up slice.
-   7. GUARDED card-renderer "Stand"/"stands"/"Stand Traits" (app.js ~754-830,
-      6482-6582) render INSIDE the card HTML the render master captures. Changing
-      them will move render_master and needs a deliberate baseline update.
-      Separate slice.
+   7. [FIXED] The card-renderer "Stand"/"stands"/"Stand Traits" strings are now
+      T()-driven (skirmish cards show "5 models" and "Model Rules"). These render
+      inside the card HTML the render master captures, but the change is
+      behavior-PRESERVING for LaserStorm: term values equal the original words
+      and inline counts lowercase (via Tn() / .toLowerCase()), so LaserStorm's
+      cards render byte-identically and render_master stayed IDENTICAL - no
+      baseline update needed.
    8. import/export envelope app-tag (still "laserstorm-army-builder") + the
       localStorage key "ls_army_builder" + download filenames. Making these
       GAME.meta.id-derived needs a migration read of the old key so existing
