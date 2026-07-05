@@ -9,7 +9,8 @@
     "check": "node tools/build_check.mjs",
     "serve": "python3 -m http.server 3001 --directory dist",
     "golden": "APP_URL=http://localhost:3001/index.html node tools/golden_master.cjs /tmp/rally_golden.json",
-    "render": "APP_URL=http://localhost:3001/index.html node tools/render_master.cjs /tmp/rally_render.json"
+    "render": "APP_URL=http://localhost:3001/index.html node tools/render_master.cjs /tmp/rally_render.json",
+    "functional": "APP_URL=http://localhost:3001/index.html node tools/functional.cjs"
   },
   "devDependencies": {
     "playwright": "^1.40.0"
