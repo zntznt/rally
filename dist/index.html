@@ -429,7 +429,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 </head>
 <body>
 <nav>
-  <div class="nav-brand">LaserStorm Force Builder</div>
+  <div class="nav-brand" id="nav-brand"><!-- set from GAME.meta.brand by applyBranding() --></div>
   <div class="nav-tabs">
     <div class="nav-tab" id="tab-builder" onclick="showPage('builder')" title="Unit Builder"><i class="fa-solid fa-hammer"></i><span class="nav-label">Unit Builder</span></div>
     <div class="nav-tab" id="tab-library" onclick="showPage('library')" title="Unit Library"><i class="fa-solid fa-book-open"></i><span class="nav-label">Unit Library</span></div>
@@ -440,7 +440,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
     <div class="nav-tab" id="tab-data" onclick="showPage('data')" title="Data"><i class="fa-solid fa-database"></i><span class="nav-label">Data</span></div>
   </div>
   <button id="nav-undo-btn" onclick="undoState()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
-  <a href="https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'">Buy LaserStorm</a>
+  <!-- href/label/visibility set from GAME.meta.buyUrl/buyLabel by applyBranding(); hidden when the pack has no storefront. -->
+  <a id="nav-buy-link" href="#" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s;display:none" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'"></a>
 </nav>
 
 <!-- Reminds the user to export a backup, since all data lives only in localStorage -->
@@ -471,28 +472,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
           </div>
           <div class="form-group">
             <label>Class</label>
-            <select id="b-class" onchange="onClassChange()" style="width:auto">
-              <option value="inf">Infantry</option>
-              <option value="cav">Cavalry</option>
-              <option value="scout">Scout</option>
-              <option value="fg">Field Gun</option>
-              <option value="afv">AFV (Tank)</option>
-              <option value="ac">Aircraft</option>
-              <option value="sh">Super Heavy</option>
-              <option value="beh">Behemoth</option>
-            </select>
+            <!-- Options are generated from GAME.classes by rebuildClassSelect() at boot. -->
+            <select id="b-class" onchange="onClassChange()" style="width:auto"></select>
           </div>
           <div class="form-group">
             <label>Faction</label>
-            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()">
-              <option value="">No Faction</option>
-              <option value="standard">Standard</option>
-              <option value="precursor">Precursor</option>
-              <option value="soulless">Soulless</option>
-              <option value="swarm">Swarm</option>
-              <option value="warrior">Warrior</option>
-              <option value="__new__">+ New Faction…</option>
-            </select>
+            <!-- Options are generated from GAME.factions.labels by rebuildFactionSelect() at boot. -->
+            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()"></select>
           </div>
           <div class="form-group" style="flex:0 0 auto">
             <label>Size <span id="b-size-hint" style="font-weight:normal;color:var(--text-dim);font-size:9px;text-transform:none;letter-spacing:0">(def 6)</span></label>
@@ -1466,7 +1452,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 // names are the legacy identifiers). This boundary is the seed of a
 // multi-game engine: a different game would ship a different GAME object.
 const GAME = {
-  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition" },
+  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition",
+    title: "LaserStorm Force Builder",
+    brand: "LaserStorm Force Builder",
+    buyUrl: "https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654",
+    buyLabel: "Buy LaserStorm" },
   traits: {},       // stand/weapon trait pools + structured requirements
   classes: null,    // stand-class costing profiles (size, mult, saves...)
   classProfiles: null, // tactical reference table shown on the cost card
@@ -3833,7 +3823,8 @@ function setEditMode(unit) {
 function resetBuilder() {
   document.getElementById("b-name").value = "";
   document.getElementById("b-description").value = "";
-  document.getElementById("b-class").value = "inf";
+  // First class key from the GAME pack, not a hardcoded "inf".
+  document.getElementById("b-class").value = Object.keys(GAME.classes)[0];
   document.getElementById("b-faction").value = "";
   builderFactionPrev = "";
   builderMobilityPrev = "";
@@ -4460,10 +4451,9 @@ function rebuildFactionSelect(selectValue) {
   // Default to keeping the current selection - rebuilding while a unit is on
   // the builder must not silently reset its faction to "No Faction".
   if(selectValue === undefined) selectValue = sel.value;
-  const builtins = [
-    {v:"standard",l:"Standard"},{v:"precursor",l:"Precursor"},
-    {v:"soulless",l:"Soulless"},{v:"swarm",l:"Swarm"},{v:"warrior",l:"Warrior"}
-  ];
+  // Built-in factions come from the GAME pack, not a hardcoded list, so a
+  // different game ships different factions without touching the engine.
+  const builtins = Object.entries(GAME.factions.labels || {}).map(([v,l]) => ({v,l}));
   sel.innerHTML = `<option value="">No Faction</option>`
     + builtins.map(b=>`<option value="${b.v}">${b.l}</option>`).join("")
     + (state.customFactions||[]).map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("")
@@ -4471,6 +4461,38 @@ function rebuildFactionSelect(selectValue) {
   sel.value = selectValue;
   if(sel.value !== selectValue) sel.value = "";   // selected faction was deleted
   builderFactionPrev = sel.value;
+}
+
+// Apply the GAME pack's branding to the static shell chrome (title, nav-brand,
+// Buy link) so each game looks like its own app. buyUrl is optional: a pack
+// without a storefront leaves the Buy link hidden.
+function applyBranding() {
+  const m = GAME.meta || {};
+  document.title = m.title || `${m.name || "Rally"} Force Builder`;
+  const brand = document.getElementById("nav-brand");
+  if(brand) brand.textContent = m.brand || m.title || m.name || "Force Builder";
+  const buy = document.getElementById("nav-buy-link");
+  if(buy) {
+    if(m.buyUrl) {
+      buy.href = m.buyUrl;
+      buy.textContent = m.buyLabel || `Buy ${m.name || ""}`.trim();
+      buy.style.display = "";          // let the mobile CSS rule hide it on small screens
+    } else {
+      buy.style.display = "none";
+    }
+  }
+}
+
+// Populate the builder's Class <select> from GAME.classes rather than a
+// hardcoded HTML option list, so a different game's classes appear without
+// editing the shell. Preserves the current selection across rebuilds.
+function rebuildClassSelect(selectValue) {
+  const sel = document.getElementById("b-class");
+  if(!sel) return;
+  if(selectValue === undefined) selectValue = sel.value;
+  sel.innerHTML = Object.entries(GAME.classes || {})
+    .map(([k,ci]) => `<option value="${k}">${esc(ci.label || k)}</option>`).join("");
+  if(selectValue && GAME.classes[selectValue]) sel.value = selectValue;
 }
 
 // Removes traits from traitArr that fail faction/class/mobility/traitr requirements.
@@ -10437,7 +10459,9 @@ function renderAll() {
 }
 
 loadState();
+applyBranding();             // title / nav-brand / Buy link from GAME.meta
 renderBuilderStatInputs();   // build the stat inputs from GAME.schema before anything touches them
+rebuildClassSelect();        // populate Class <select> from GAME.classes before resetBuilder reads it
 resetBuilder();
 rebuildFactionSelect();
 

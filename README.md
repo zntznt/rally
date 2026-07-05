@@ -28,6 +28,8 @@ build.mjs           Concatenates the chosen pack + engine into the shell →
                     dist/index.html (one offline file).
 dist/index.html     The built app. This is what a user opens.
 tools/              golden_master.cjs + render_master.cjs (behavior guards),
+                    functional.cjs (stateful-flow assertions: persistence,
+                    undo, delete cascades, import validation, XSS),
                     build_check.mjs (fast parse + build smoke test).
 ```
 
@@ -81,6 +83,26 @@ Touching `packs/<name>.cost`/`.org`/`.transport` should move the points golden
 master (that's the point); touching rendering or the schema should move the
 render master. Neither should change from an engine refactor that's meant to be
 behavior-preserving.
+
+### Functional suite
+
+The golden masters snapshot *math* and *rendering*. The functional suite guards
+*stateful UI flows* the masters can't see — the paths where a bug loses or
+corrupts a user's data. It is pass/fail (no baseline file): 9 assertions
+covering save/reload persistence, undo, `deleteTF`/`deleteArmy` cascades (no
+dangling references left behind), army export→import round-trip, import
+validation (`_parseImportArmyText` accepts only correctly-tagged army exports),
+crafted-import XSS sanitization (faction `icon`/`color` are interpolated into
+attributes unescaped and rely on `_migrateState` to neutralize them), and
+corrupt-`localStorage` recovery.
+
+```bash
+python3 -m http.server 3001 --directory dist &
+npm run functional            # -> "functional: 9/9 passed", exit 0 on pass
+```
+
+Run it after any change that touches state, persistence, delete/import logic, or
+the escaping helpers.
 
 ## Adding a game pack
 

@@ -429,7 +429,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 </head>
 <body>
 <nav>
-  <div class="nav-brand">LaserStorm Force Builder</div>
+  <div class="nav-brand" id="nav-brand"><!-- set from GAME.meta.brand by applyBranding() --></div>
   <div class="nav-tabs">
     <div class="nav-tab" id="tab-builder" onclick="showPage('builder')" title="Unit Builder"><i class="fa-solid fa-hammer"></i><span class="nav-label">Unit Builder</span></div>
     <div class="nav-tab" id="tab-library" onclick="showPage('library')" title="Unit Library"><i class="fa-solid fa-book-open"></i><span class="nav-label">Unit Library</span></div>
@@ -440,7 +440,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
     <div class="nav-tab" id="tab-data" onclick="showPage('data')" title="Data"><i class="fa-solid fa-database"></i><span class="nav-label">Data</span></div>
   </div>
   <button id="nav-undo-btn" onclick="undoState()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
-  <a href="https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'">Buy LaserStorm</a>
+  <!-- href/label/visibility set from GAME.meta.buyUrl/buyLabel by applyBranding(); hidden when the pack has no storefront. -->
+  <a id="nav-buy-link" href="#" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s;display:none" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'"></a>
 </nav>
 
 <!-- Reminds the user to export a backup, since all data lives only in localStorage -->
@@ -471,28 +472,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
           </div>
           <div class="form-group">
             <label>Class</label>
-            <select id="b-class" onchange="onClassChange()" style="width:auto">
-              <option value="inf">Infantry</option>
-              <option value="cav">Cavalry</option>
-              <option value="scout">Scout</option>
-              <option value="fg">Field Gun</option>
-              <option value="afv">AFV (Tank)</option>
-              <option value="ac">Aircraft</option>
-              <option value="sh">Super Heavy</option>
-              <option value="beh">Behemoth</option>
-            </select>
+            <!-- Options are generated from GAME.classes by rebuildClassSelect() at boot. -->
+            <select id="b-class" onchange="onClassChange()" style="width:auto"></select>
           </div>
           <div class="form-group">
             <label>Faction</label>
-            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()">
-              <option value="">No Faction</option>
-              <option value="standard">Standard</option>
-              <option value="precursor">Precursor</option>
-              <option value="soulless">Soulless</option>
-              <option value="swarm">Swarm</option>
-              <option value="warrior">Warrior</option>
-              <option value="__new__">+ New Faction…</option>
-            </select>
+            <!-- Options are generated from GAME.factions.labels by rebuildFactionSelect() at boot. -->
+            <select id="b-faction" style="width:auto" onchange="onFactionSelectChange()"></select>
           </div>
           <div class="form-group" style="flex:0 0 auto">
             <label>Size <span id="b-size-hint" style="font-weight:normal;color:var(--text-dim);font-size:9px;text-transform:none;letter-spacing:0">(def 6)</span></label>
