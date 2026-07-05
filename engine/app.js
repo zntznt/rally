@@ -2569,6 +2569,21 @@ function applyBranding() {
   }
 }
 
+// Rewrite the static shell's terminology at boot. Elements carry data-term="key"
+// (their text becomes T("key")) or data-term-tpl="... {key} ..." (each {token}
+// is replaced by T("token")). The static HTML keeps LaserStorm's words as a
+// no-JS default; this only touches elements that opted in with an attribute, so
+// mixed-content nodes stay intact.
+function applyTerms(root) {
+  const scope = root || document;
+  scope.querySelectorAll("[data-term]").forEach(el => {
+    el.textContent = T(el.dataset.term);
+  });
+  scope.querySelectorAll("[data-term-tpl]").forEach(el => {
+    el.textContent = el.dataset.termTpl.replace(/\{(\w+)\}/g, (_, k) => T(k));
+  });
+}
+
 // Populate the builder's Class <select> from GAME.classes rather than a
 // hardcoded HTML option list, so a different game's classes appear without
 // editing the shell. Preserves the current selection across rebuilds.
@@ -8546,6 +8561,7 @@ function renderAll() {
 
 loadState();
 applyBranding();             // title / nav-brand / Buy link from GAME.meta
+applyTerms();                // rewrite static shell terminology from GAME.terms
 renderBuilderStatInputs();   // build the stat inputs from GAME.schema before anything touches them
 rebuildClassSelect();        // populate Class <select> from GAME.classes before resetBuilder reads it
 resetBuilder();

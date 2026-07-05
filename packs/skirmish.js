@@ -274,11 +274,15 @@ GAME.schema = {
       export category labels). Both masters stay IDENTICAL for LaserStorm
       because its terms ARE the original words.
 
-   STILL LEAKING (deferred to later slices):
-   6. STATIC shell.html scaffolding labels (~34 strings: nav tab labels, modal
-      titles, section headers) are still literal "Task Force"/"Stand" - they're
-      static HTML with no T() access. Making them pack-driven needs element ids +
-      a boot-time textContent sweep. Follow-up slice.
+   FIXED:
+   6. [FIXED] STATIC shell.html scaffolding labels (nav tabs, modal titles, form
+      labels, section headers) are now rewritten at boot by applyTerms(): each
+      element carries data-term="key" or data-term-tpl="New {taskForce}" and gets
+      its text set from GAME.terms. The static HTML keeps LaserStorm's words as a
+      no-JS default (so masters stay IDENTICAL). Skirmish shows Squads / Campaign
+      Rosters / Model Rules / New Squad / Squad Sergeant / Detachment Symbol.
+      (Placeholder example text like "e.g. Colonel Marcus" is flavor, not a
+      terminology label, and is left as-is.)
    7. [FIXED] The card-renderer "Stand"/"stands"/"Stand Traits" strings are now
       T()-driven (skirmish cards show "5 models" and "Model Rules"). These render
       inside the card HTML the render master captures, but the change is
@@ -300,6 +304,8 @@ GAME.schema = {
       Verified on a skirmish build: adopts legacy data, writes forward under
       ls_skirmish, legacy key preserved, both legacy and own-tag imports accepted.
 
-   ALL EIGHT identified leaks are now addressed EXCEPT #6 (static shell.html
-   scaffolding labels), which is purely cosmetic and needs element-ids + a boot
-   textContent sweep. */
+   ALL EIGHT identified LaserStorm-shaped leaks are now addressed. The engine is
+   game-agnostic across guts (stats/cost/classes/factions), builder selects,
+   chrome/branding, dynamic + static UI terminology, card rendering, and
+   storage/export identity. Skirmish is a fully separate app built by swapping
+   one pack file. */
