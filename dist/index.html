@@ -2409,6 +2409,14 @@ const _TERM_FALLBACK = {
 function T(key) {
   return (GAME.terms && GAME.terms[key] != null) ? GAME.terms[key] : (_TERM_FALLBACK[key] || key);
 }
+// Count-aware term for INLINE COUNT contexts ("6 stands", "1 model"). Returns
+// T("stand")/T("stands") by n, lowercased — inline counts read lowercase in the
+// card text, whereas the same term is title-case as a section label ("Stand
+// Traits"). Lowercasing here keeps LaserStorm's card text byte-identical while
+// still letting a pack rename the word.
+function Tn(n, singularKey) {
+  return (n === 1 ? T(singularKey) : T(singularKey + "s")).toLowerCase();
+}
 
 function confirmBtn(btn, action, ms=5000) {
   if (btn._confirming) {
@@ -2752,7 +2760,7 @@ function unitCardHTML(unit, actions, viewType="unit", opts={}) {
   const pVal = pts[pKey] != null ? pts[pKey] : "-";
   const pLabel = VIEW_LABELS[viewType] || "Unit";
   const standsHTML = viewType === "unit"
-    ? `<span style="font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap">${pts.unitSize} stand${pts.unitSize>1?"s":""}</span>`
+    ? `<span style="font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap">${pts.unitSize} ${Tn(pts.unitSize,"stand")}</span>`
     : "";
   return `
     <div class="unit-card">
@@ -2780,7 +2788,7 @@ function unitCardHTML(unit, actions, viewType="unit", opts={}) {
         </div>
       </div>
       <div class="stat-row">${statRowCells(unit, pts)}</div>
-      <div class="unit-card-traits"><span class="unit-card-section-label">Stand Traits</span>${traitsHTML}</div>
+      <div class="unit-card-traits"><span class="unit-card-section-label">${T("standTraits")}</span>${traitsHTML}</div>
       ${weaponsHTML}
       ${actions ? `<div class="unit-card-actions">${actions}</div>` : ""}
     </div>`;
@@ -2801,7 +2809,7 @@ function mechPairCardHTML(infUnit, tuUnit, n, actionsHTML, viewType, opts={}) {
     const pLabel = VIEW_LABELS[vt] || "Unit";
     const topRightHTML = extra.countBadge != null
       ? `<span style="font-size:12px;font-weight:bold;color:#66bb6a;flex-shrink:0;white-space:nowrap">&times;${extra.countBadge}</span>`
-      : (vt === "unit" ? `<span style="font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap">${pts.unitSize} stand${pts.unitSize>1?"s":""}</span>` : "");
+      : (vt === "unit" ? `<span style="font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap">${pts.unitSize} ${Tn(pts.unitSize,"stand")}</span>` : "");
     const transportTagHTML = extra.transportTag||"";
     return `<div class="mech-half" style="flex:1;min-width:0;padding:10px 10px 8px">
         <div class="unit-card-header">
@@ -2828,7 +2836,7 @@ function mechPairCardHTML(infUnit, tuUnit, n, actionsHTML, viewType, opts={}) {
           </div>
         </div>
         <div class="stat-row">${statRowCells(unit, pts)}</div>
-        <div class="unit-card-traits"><span class="unit-card-section-label">Stand Traits</span>${traitsHTML}</div>
+        <div class="unit-card-traits"><span class="unit-card-section-label">${T("standTraits")}</span>${traitsHTML}</div>
         ${weaponsHTML}
       </div>`;
   }
@@ -4104,7 +4112,7 @@ function openTraitPicker(target, wIdx) {
       if(k) traitPickerStepperCounts[k] = t[3];
     }
   });
-  document.getElementById("trait-modal-title").textContent = target==="stand" ? "Stand Traits" : `Weapon ${wIdx+1} Traits`;
+  document.getElementById("trait-modal-title").textContent = target==="stand" ? T("standTraits") : `Weapon ${wIdx+1} Traits`;
   const searchEl = document.getElementById("trait-picker-search");
   if(searchEl) searchEl.value = "";
   refreshTraitPickerList();
@@ -4191,7 +4199,7 @@ function calculateBuilder() {
 
   // Available cost tiles in display order
   const roleTiles = [
-    {key:"unit",    label:`Unit (${pts.unitSize} stand${pts.unitSize>1?"s":""})`, pts:pts.unitPts},
+    {key:"unit",    label:`Unit (${pts.unitSize} ${Tn(pts.unitSize,"stand")})`, pts:pts.unitPts},
     {key:"ind",     label:"Independent",  pts:pts.indPts,     prem:pr.ind},
     {key:"cmd",     label:"Command",      pts:pts.cmdPts,     prem:pr.cmd},
     {key:"hero",    label:"Ind. Hero",    pts:pts.heroPts,    prem:pr.hero},
@@ -4247,7 +4255,7 @@ function calculateBuilder() {
       <div class="summary-row"><span>Weapon systems</span><span>${bd.weaponPts > 0 ? "+"+bd.weaponPts : bd.weaponPts}</span></div>
       ${wpnRows}
       <div class="summary-row"><span>Class multiplier</span><span>&times;${bd.mult}</span></div>
-      <div class="summary-row"><span>Per stand</span><span>${pts.perStand} pts</span></div>
+      <div class="summary-row"><span>Per ${T("stand")}</span><span>${pts.perStand} pts</span></div>
       ${typeRow}`;
   })() : "";
 
@@ -7381,7 +7389,7 @@ function _openTransportPicker(unit, current, faction) {
   const noun = unit.class==="fg" ? "gun" : "infantry";
   const singleNote = single && unit.class==="fg"
     ? " (a single stand mechanizes with one slot)" : "";
-  intro.innerHTML = `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - ${stands} ${noun} stand${stands!==1?"s":""} needing <strong>${need}</strong> transport slot${need!==1?"s":""}${singleNote}. Pick a transport AFV; the minimum number needed is added automatically.`;
+  intro.innerHTML = `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - ${stands} ${noun} ${Tn(stands,"stand")} needing <strong>${need}</strong> transport slot${need!==1?"s":""}${singleNote}. Pick a transport AFV; the minimum number needed is added automatically.`;
   document.getElementById("transport-clear-btn").style.display = current ? "inline-flex" : "none";
   _tpSelected = current;
   _renderTransportList(faction);
@@ -8480,7 +8488,7 @@ function _pUnitCard(unit, viewType, tfBadgeHTML, opts, pal, gray) {
         return `<div style="padding:4px 8px;font-size:10px;background:${pal.wepBg};border:1px solid ${pal.wepBorder};border-radius:4px;margin-top:3px;line-height:1.5"><span style="color:${pal.pageText}">${wName}<span style="color:${pal.mutedText};font-weight:normal">${GAME.schema.weapon.tag(w)}</span> | ${weaponPrintLine(w)}${wtPills}</span></div>`;
       }).join("");
   const descHTML    = unit.description ? `<div style="font-size:10px;color:${pal.mutedText};font-style:italic;line-height:1.4;padding:3px 0 4px">${esc(unit.description)}</div>` : "";
-  const unitSizeStr = opts.tag ? "" : (viewType === "unit" ? ` <span style="font-size:10px;color:${pal.mutedText};font-weight:normal">${pts.unitSize} stand${pts.unitSize>1?"s":""}</span>` : "");
+  const unitSizeStr = opts.tag ? "" : (viewType === "unit" ? ` <span style="font-size:10px;color:${pal.mutedText};font-weight:normal">${pts.unitSize} ${Tn(pts.unitSize,"stand")}</span>` : "");
   const tagHTML = opts.tag ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:8px;font-weight:bold;letter-spacing:.5px;text-transform:uppercase;background:${gray?"#e0e0e0":"#e3f2fd"};color:${gray?"#333":"#1565c0"};border:1px solid ${gray?"#bbb":"#90caf9"}">${esc(opts.tag)}</span>` : "";
   return `<div style="background:${pal.cardBg};border:1.5px solid ${pal.cardBorder};border-radius:8px;padding:10px;break-inside:avoid;page-break-inside:avoid">
     <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
@@ -8498,7 +8506,7 @@ function _pUnitCard(unit, viewType, tfBadgeHTML, opts, pal, gray) {
       ${statPrintCells(unit, pts, pal).map(([label,val])=>`<div style="text-align:center;flex:1;min-width:34px;padding:1px 2px"><div style="font-size:7.5px;text-transform:uppercase;color:${pal.mutedText};letter-spacing:.05em;font-weight:700">${label}</div><div style="font-size:12px;font-weight:bold;color:${pal.pageText};line-height:1.15">${val}</div></div>`).join("")}
     </div>
     <div style="margin-bottom:5px">
-      <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:${pal.mutedText};font-weight:700;margin-bottom:3px">Stand Traits</div>
+      <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:${pal.mutedText};font-weight:700;margin-bottom:3px">${T("standTraits")}</div>
       <div style="display:flex;flex-wrap:wrap;gap:2px">${traitsHTML}</div>
     </div>
     <div>
@@ -8543,10 +8551,10 @@ function _pMechPair(carrier, viewType, tu, n, badgeHTML, pal, gray, carrierPtsVa
     const descHTML = unit.description ? `<div style="font-size:10px;color:${pal.mutedText};font-style:italic;line-height:1.4;padding:3px 0 4px">${esc(unit.description)}</div>` : "";
     const tagHTML = extra.tag ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:8px;font-weight:bold;letter-spacing:.5px;text-transform:uppercase;background:${connBg};color:${connFg};border:1px solid ${connBord}">${esc(extra.tag)}</span>` : "";
     const countHTML = extra.countBadge != null
-      ? `<div style="margin-top:5px;font-size:14px;font-weight:bold;color:${connFg}">&times;${extra.countBadge}<span style="font-size:9px;font-weight:normal;color:${pal.mutedText}"> stands</span></div>`
+      ? `<div style="margin-top:5px;font-size:14px;font-weight:bold;color:${connFg}">&times;${extra.countBadge}<span style="font-size:9px;font-weight:normal;color:${pal.mutedText}"> ${T("stands").toLowerCase()}</span></div>`
       : "";
     const unitSizeStr = extra.countBadge == null && vt === "unit"
-      ? ` <span style="font-size:10px;color:${pal.mutedText};font-weight:normal">${pts.unitSize} stand${pts.unitSize>1?"s":""}</span>`
+      ? ` <span style="font-size:10px;color:${pal.mutedText};font-weight:normal">${pts.unitSize} ${Tn(pts.unitSize,"stand")}</span>`
       : "";
     return `<div style="flex:1;min-width:0;padding:10px">
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
@@ -8564,7 +8572,7 @@ function _pMechPair(carrier, viewType, tu, n, badgeHTML, pal, gray, carrierPtsVa
         ${statPrintCells(unit, pts, pal).map(([l,v])=>`<div style="text-align:center;flex:1;min-width:34px;padding:1px 2px"><div style="font-size:7.5px;text-transform:uppercase;color:${pal.mutedText};letter-spacing:.05em;font-weight:700">${l}</div><div style="font-size:12px;font-weight:bold;color:${pal.pageText};line-height:1.15">${v}</div></div>`).join("")}
       </div>
       <div style="margin-bottom:5px">
-        <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:${pal.mutedText};font-weight:700;margin-bottom:3px">Stand Traits</div>
+        <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:${pal.mutedText};font-weight:700;margin-bottom:3px">${T("standTraits")}</div>
         <div style="display:flex;flex-wrap:wrap;gap:2px">${traitsHTML}</div>
       </div>
       <div>
@@ -8580,7 +8588,7 @@ function _pMechPair(carrier, viewType, tu, n, badgeHTML, pal, gray, carrierPtsVa
       <i class="fa-solid fa-truck" style="color:${connFg};font-size:12px"></i>
       <span style="font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;color:${connFg};writing-mode:vertical-rl;transform:rotate(180deg)">Mechanized</span>
     </div>
-    ${halfContent(tu, "unit", {countBadge: n, tag: "Transport", ptsVal: tuPtsPerStand, ptsLabel: "/ Stand"})}
+    ${halfContent(tu, "unit", {countBadge: n, tag: "Transport", ptsVal: tuPtsPerStand, ptsLabel: `/ ${T("stand")}`})}
   </div>`;
 }
 
@@ -9046,7 +9054,7 @@ function _renderFPUnitList() {
         ${classBadge(u.class,true)}${factionBadge(u)}
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <span style="font-size:11px;color:#8b949e">${u.speed}" ${u.mobility} &bull; Aim ${u.aim}+ &bull; Save ${u.saveNumber}+ &bull; ${pts.unitSize} stand${pts.unitSize!==1?"s":""}</span>
+        <span style="font-size:11px;color:#8b949e">${u.speed}" ${u.mobility} &bull; Aim ${u.aim}+ &bull; Save ${u.saveNumber}+ &bull; ${pts.unitSize} ${Tn(pts.unitSize,"stand")}</span>
         <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${btns}</div>
       </div>
     </div>`;
