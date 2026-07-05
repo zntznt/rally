@@ -20,7 +20,13 @@ const GAME = {
     title: "LaserStorm Force Builder",
     brand: "LaserStorm Force Builder",
     buyUrl: "https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654",
-    buyLabel: "Buy LaserStorm" },
+    buyLabel: "Buy LaserStorm",
+    // Storage + export identity. PINNED to the historical values so existing
+    // LaserStorm saves and export files stay compatible with zero migration.
+    // (The legacy localStorage key predates the id, so it is not id-derived.)
+    storageKey: "ls_army_builder",
+    appTag: "laserstorm-army-builder",
+    filePrefix: "laserstorm" },
   traits: {},       // stand/weapon trait pools + structured requirements
   classes: null,    // stand-class costing profiles (size, mult, saves...)
   classProfiles: null, // tactical reference table shown on the cost card

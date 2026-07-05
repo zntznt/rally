@@ -196,6 +196,50 @@ const URL = process.env.APP_URL || 'http://localhost:3001/index.html';
       msg: `threw=${threw} stashedCorrupt=${stashed} stateArraysOk=${stateOk}` };
   });
 
+  // 10. This build uses its pack's storage key + app tag (pack-overridable
+  //     identity). For the laserstorm build these are pinned to the legacy
+  //     values, so existing saves/exports stay compatible.
+  await check('storage: pack storage key + app tag resolve', () => {
+    const sk = storageKey(), tag = appTag();
+    // laserstorm build must keep the legacy identity (zero-migration guarantee)
+    const okKey = sk === 'ls_army_builder';
+    const okTag = tag === 'laserstorm-army-builder';
+    return { pass: okKey && okTag, msg: `storageKey=${sk} appTag=${tag}` };
+  });
+
+  // 11. Legacy import compat: a file tagged with the OLD literal
+  //     "laserstorm-army-builder" must still import (never orphan old exports).
+  await check('import: legacy app-tag still accepted', () => {
+    const ta = document.getElementById('import-army-text');
+    const legacy = { app: 'laserstorm-army-builder', kind: 'army', version: 1,
+      data: { army: { id: 'leg', name: 'Legacy', armyType: 'tf', taskForceIds: [], battleGroups: [] } } };
+    ta.value = JSON.stringify(legacy);
+    _parseImportArmyText();
+    const accepted = _pendingImport !== null && _pendingImport.kind === 'army';
+    return { pass: accepted, msg: `legacyAccepted=${accepted}` };
+  });
+
+  // 12. Migration read: data left under the legacy "ls_army_builder" key must be
+  //     adopted when this pack's key differs. Simulate by writing legacy data,
+  //     clearing this pack's key, and confirming loadState picks it up ONLY when
+  //     the keys differ. For the laserstorm build storageKey()===legacy, so the
+  //     read is a plain read; we assert the shim doesn't break that.
+  await check('storage: migration read adopts legacy key when different', () => {
+    localStorage.clear();
+    const legacyBlob = JSON.stringify({ schemaVersion: 1, customUnits: [], customFactions: [],
+      customTraits: [], customTFTypes: [], customTacticalAssets: [],
+      taskForces: [{ id: 'tf_leg', name: 'FromLegacy', tfType: 'infantry', commander: 'C',
+        faction: '', notes: '', pointsLimit: 0, units: [] }],
+      armies: [], expeditionaryForces: [], tfTemplates: [] });
+    localStorage.setItem('ls_army_builder', legacyBlob);
+    // ensure this pack's key is empty so the shim must fall back (no-op if same key)
+    if (storageKey() !== 'ls_army_builder') localStorage.removeItem(storageKey());
+    state.taskForces = [];
+    loadState();
+    const adopted = state.taskForces.some(t => t.id === 'tf_leg');
+    return { pass: adopted, msg: `key=${storageKey()} adoptedLegacyData=${adopted}` };
+  });
+
   await browser.close();
 
   // Report
