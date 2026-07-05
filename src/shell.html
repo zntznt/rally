@@ -434,9 +434,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
     <div class="nav-tab" id="tab-builder" onclick="showPage('builder')" title="Unit Builder"><i class="fa-solid fa-hammer"></i><span class="nav-label">Unit Builder</span></div>
     <div class="nav-tab" id="tab-library" onclick="showPage('library')" title="Unit Library"><i class="fa-solid fa-book-open"></i><span class="nav-label">Unit Library</span></div>
     <div class="nav-tab" id="tab-factions" onclick="showPage('factions')" title="Factions"><i class="fa-solid fa-flag"></i><span class="nav-label">Factions</span></div>
-    <div class="nav-tab" id="tab-taskforces" onclick="showPage('taskforces')" title="Task Forces"><i class="fa-solid fa-users"></i><span class="nav-label">Task Forces</span></div>
+    <div class="nav-tab" id="tab-taskforces" onclick="showPage('taskforces')" title="Task Forces"><i class="fa-solid fa-users"></i><span class="nav-label" data-term="taskForces">Task Forces</span></div>
     <div class="nav-tab" id="tab-armies" onclick="showPage('armies')" title="Armies"><i class="fa-solid fa-chess-rook"></i><span class="nav-label">Armies</span></div>
-    <div class="nav-tab" id="tab-forces" onclick="showPage('forces')" title="Expeditionary Forces"><i class="fa-solid fa-earth-americas"></i><span class="nav-label">Expeditionary Forces</span></div>
+    <div class="nav-tab" id="tab-forces" onclick="showPage('forces')" title="Expeditionary Forces"><i class="fa-solid fa-earth-americas"></i><span class="nav-label" data-term="forces">Expeditionary Forces</span></div>
     <div class="nav-tab" id="tab-data" onclick="showPage('data')" title="Data"><i class="fa-solid fa-database"></i><span class="nav-label">Data</span></div>
   </div>
   <button id="nav-undo-btn" onclick="undoState()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
@@ -495,7 +495,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
              (renderBuilderStatInputs) - nothing game-specific lives here. -->
         <div class="stand-stats-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-bottom:14px"></div>
         <div class="form-group" style="margin-bottom:4px">
-          <label>Stand Traits <span class="trait-edit-btn" onclick="openTraitPicker('stand')">edit</span></label>
+          <label><span data-term="standTraits">Stand Traits</span> <span class="trait-edit-btn" onclick="openTraitPicker('stand')">edit</span></label>
           <div id="b-traits-display" style="font-size:11px;color:#8b949e">None</div>
         </div>
         <div class="sub-divider">
@@ -531,7 +531,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
             <tr><td>Behemoth</td><td>1 &bull; 4D6/24+ &bull; &times;4</td></tr>
           </table>
           <table class="ref-table">
-            <tr><th colspan="2">Stand factors</th></tr>
+            <tr><th colspan="2"><span data-term-tpl="{stand} factors">Stand factors</span></th></tr>
             <tr><td>Speed</td><td>+0.25 / inch over base 4" (Cav/Air 8")</td></tr>
             <tr><td>Mobility</td><td>Walker +2, Grav +4 speed cost (all ground vehicles)</td></tr>
             <tr><td>Aim</td><td>0 at 5+; each pt better +2/weapon slot (+1 Infantry)</td></tr>
@@ -549,7 +549,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
             <tr><td>Minimum</td><td>1 pt per shot</td></tr>
           </table>
           <table class="ref-table">
-            <tr><th>Stand role</th><th>Other / FG / SH / Beh</th></tr>
+            <tr><th><span data-term-tpl="{stand} role">Stand role</span></th><th>Other / FG / SH / Beh</th></tr>
             <tr><td>Independent</td><td>+30% / +30% / +0% / +0%</td></tr>
             <tr><td>Command</td><td>+50% / - / +20% / -</td></tr>
             <tr><td>Ind. Hero</td><td>+55% / +55% / +25% / +25%</td></tr>
@@ -652,11 +652,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== TASK FORCES PAGE ===== -->
 <div id="page-taskforces" class="page">
   <div id="tf-list-view">
-    <div class="card-title">Task Forces
+    <div class="card-title"><span data-term="taskForces">Task Forces</span>
       <div style="display:flex;gap:6px">
         <button class="trait-edit-btn" onclick="openImportTFModal()"><i class="fa-solid fa-file-import"></i> Import</button>
         <button class="trait-edit-btn" id="btn-tf-templates" onclick="openTFTemplatesModal()"><i class="fa-solid fa-layer-group"></i> Templates</button>
-        <button class="trait-edit-btn" onclick="openNewTFModal()"><i class="fa-solid fa-plus"></i> New Task Force</button>
+        <button class="trait-edit-btn" onclick="openNewTFModal()"><i class="fa-solid fa-plus"></i> <span data-term-tpl="New {taskForce}">New Task Force</span></button>
       </div>
     </div>
     <div id="tf-list"></div>
@@ -686,7 +686,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== EXPEDITIONARY FORCES PAGE ===== -->
 <div id="page-forces" class="page">
   <div id="force-list-view">
-    <div class="card-title">Expeditionary Forces
+    <div class="card-title"><span data-term="forces">Expeditionary Forces</span>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="trait-edit-btn" onclick="openImportForceModal()"><i class="fa-solid fa-file-import"></i> Import</button>
         <button class="trait-edit-btn" onclick="openNewForceModal()"><i class="fa-solid fa-plus"></i> New Force</button>
@@ -821,17 +821,17 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== IMPORT TASK FORCE MODAL ===== -->
 <div id="modal-import-tf" class="modal-bg">
   <div class="modal" style="max-width:640px">
-    <div class="modal-header">Import Task Force <button class="modal-close" aria-label="Close" onclick="closeModal('modal-import-tf')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="Import {taskForce}">Import Task Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-import-tf')"><i class="fa-solid fa-xmark"></i></button></div>
     <p style="color:var(--text-muted);font-size:13px;margin:0 0 14px;line-height:1.5">Paste a previously exported task force JSON. Custom units, factions, traits, task force types and assets are merged automatically - duplicates (matched by name) are skipped.</p>
     <div class="form-group" style="margin-bottom:12px">
-      <label>Paste Task Force JSON</label>
+      <label><span data-term-tpl="Paste {taskForce} JSON">Paste Task Force JSON</span></label>
       <textarea id="import-tf-text" placeholder="Paste task force JSON here..." oninput="onImportTFTextChange()" style="width:100%;min-height:140px;resize:vertical;font-family:monospace;font-size:12px;line-height:1.4;background:var(--surface-page);border:1px solid var(--border-default);border-radius:6px;color:var(--text-primary);padding:10px"></textarea>
     </div>
     <div id="import-tf-preview" style="display:none;background:var(--surface-raised);border:1px solid var(--border-default);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.55"></div>
     <div id="import-tf-msg" style="display:none;margin-bottom:10px"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px">
       <button class="btn btn-secondary" onclick="closeModal('modal-import-tf')">Cancel</button>
-      <button class="btn btn-primary" id="import-tf-btn" onclick="doImportTF()" disabled><i class="fa-solid fa-upload"></i> Import Task Force</button>
+      <button class="btn btn-primary" id="import-tf-btn" onclick="doImportTF()" disabled><i class="fa-solid fa-upload"></i> <span data-term-tpl="Import {taskForce}">Import Task Force</span></button>
     </div>
   </div>
 </div>
@@ -839,7 +839,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== IMPORT FORCE MODAL ===== -->
 <div id="modal-import-force" class="modal-bg">
   <div class="modal" style="max-width:640px">
-    <div class="modal-header">Import Expeditionary Force <button class="modal-close" aria-label="Close" onclick="closeModal('modal-import-force')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="Import {force}">Import Expeditionary Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-import-force')"><i class="fa-solid fa-xmark"></i></button></div>
     <p style="color:var(--text-muted);font-size:13px;margin:0 0 14px;line-height:1.5">Paste a previously exported force JSON. Armies, task forces, custom units, factions, traits and assets are merged automatically - duplicates (matched by name) are skipped.</p>
     <div class="form-group" style="margin-bottom:12px">
       <label>Paste Force JSON</label>
@@ -889,7 +889,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== TF TEMPLATES PICKER MODAL ===== -->
 <div id="modal-tf-templates" class="modal-bg">
   <div class="modal" style="max-width:580px">
-    <div class="modal-header">Task Force Templates <button class="modal-close" aria-label="Close" onclick="closeModal('modal-tf-templates')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="{taskForce} Templates">Task Force Templates</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-tf-templates')"><i class="fa-solid fa-xmark"></i></button></div>
     <p style="color:var(--text-muted);font-size:13px;margin:0 0 14px;line-height:1.5">Choose a template to pre-fill a new task force with its unit composition. You'll still set the name and commander.</p>
     <div id="tf-template-list"></div>
   </div>
@@ -898,21 +898,21 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== NEW / EDIT TF MODAL ===== -->
 <div id="modal-tf" class="modal-bg">
   <div class="modal">
-    <div class="modal-header"><span id="modal-tf-title">New Task Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-tf')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span id="modal-tf-title" data-term-tpl="New {taskForce}">New Task Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-tf')"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="form-group" style="margin-bottom:12px">
-      <label>Task Force Name</label>
+      <label><span data-term-tpl="{taskForce} Name">Task Force Name</span></label>
       <input type="text" id="tf-new-name" placeholder="e.g. Alpha Strike Force" style="width:100%" oninput="clearFieldErr('tf-new-name')">
       <span class="field-error" id="tf-new-name-err"></span>
     </div>
     <div class="form-group" style="margin-bottom:12px">
-      <label>Task Force Type</label>
+      <label><span data-term-tpl="{taskForce} Type">Task Force Type</span></label>
       <div style="display:flex;gap:6px;align-items:center">
         <select id="tf-type" style="flex:1"></select>
         <button class="trait-edit-btn" onclick="openCustomTFTypeModal()"><i class="fa-solid fa-gear"></i> Custom Types</button>
       </div>
     </div>
     <div class="form-group" style="margin-bottom:12px">
-      <label>Task Force Commander</label>
+      <label><span data-term-tpl="{taskForce} {commander}">Task Force Commander</span></label>
       <input type="text" id="tf-commander" placeholder="e.g. Colonel Marcus" style="width:100%" oninput="clearFieldErr('tf-commander')">
       <span class="field-error" id="tf-commander-err"></span>
     </div>
@@ -938,9 +938,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== CUSTOM TF TYPES MODAL ===== -->
 <div id="modal-custom-tf-type" class="modal-bg">
   <div class="modal">
-    <div class="modal-header">Custom Task Force Types <button class="modal-close" aria-label="Close" onclick="closeModal('modal-custom-tf-type')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="Custom {taskForce} Types">Custom Task Force Types</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-custom-tf-type')"><i class="fa-solid fa-xmark"></i></button></div>
     <div id="custom-tf-type-list" style="margin-bottom:8px"></div>
-    <div class="modal-sub-header" id="custom-tf-type-form-title">New Task Force Type</div>
+    <div class="modal-sub-header" id="custom-tf-type-form-title" data-term-tpl="New {taskForce} Type">New Task Force Type</div>
     <div class="form-group" style="margin-bottom:8px">
       <label>Name</label>
       <input type="text" id="custom-tf-type-name" placeholder="e.g. Rapid Strike" style="width:100%" oninput="clearFieldErr('custom-tf-type-name')">
@@ -960,7 +960,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <div id="modal-add-unit" class="modal-bg">
   <div class="modal">
     <div class="modal-header">
-      <span id="addunit-modal-title">Add Unit to Task Force</span>
+      <span id="addunit-modal-title" data-term-tpl="Add Unit to {taskForce}">Add Unit to Task Force</span>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="addunit-show-unavail-btn" class="trait-edit-btn" onclick="toggleAddUnitShowUnavailable()"><i class="fa-solid fa-eye-slash"></i> Show Unavailable</button>
         <button class="modal-close" aria-label="Close" onclick="closeModal('modal-add-unit')"><i class="fa-solid fa-xmark"></i></button>
@@ -1068,7 +1068,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal">
           <input type="radio" id="army-type-tf" name="army-type" value="tf" checked>
           <span>
-            <strong style="font-size:13px">Task Force</strong>
+            <strong style="font-size:13px" data-term="taskForce">Task Force</strong>
             <span style="font-size:11px;color:#8b949e;display:block">Build around task forces with tactical assets</span>
           </span>
         </label>
@@ -1096,7 +1096,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
         </select>
       </div>
       <div class="form-group">
-        <label>Battle Groups</label>
+        <label><span data-term="battleGroups">Battle Groups</span></label>
         <select id="army-bg-count" style="width:auto">
           <option value="3">3</option>
           <option value="4">4</option>
@@ -1109,7 +1109,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
       </div>
     </div>
     <div class="form-group" style="margin-bottom:12px">
-      <label>Battle Group Symbol</label>
+      <label><span data-term-tpl="{battleGroup} Symbol">Battle Group Symbol</span></label>
       <select id="army-bg-mode" style="width:auto;margin-top:4px">
         <option value="custom">Icons</option>
         <option value="numbers">Numbers - 1  2  3</option>
@@ -1133,7 +1133,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== ADD TF TO ARMY MODAL ===== -->
 <div id="modal-add-tf" class="modal-bg">
   <div class="modal">
-    <div class="modal-header">Add Task Force <button class="modal-close" aria-label="Close" onclick="closeModal('modal-add-tf')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="Add {taskForce}">Add Task Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-add-tf')"><i class="fa-solid fa-xmark"></i></button></div>
     <div id="add-tf-faction-note" style="display:none;font-size:11px;margin-bottom:8px"></div>
     <div class="scrolllist" id="add-tf-list"></div>
     <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
@@ -1147,7 +1147,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <div id="modal-army-bg-unit" class="modal-bg">
   <div class="modal">
     <div class="modal-header">
-      <span>Add Units to Battle Group</span>
+      <span data-term-tpl="Add Units to {battleGroup}">Add Units to Battle Group</span>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="bg-unit-show-unavail-btn" class="trait-edit-btn" onclick="toggleBGShowUnavailable()"><i class="fa-solid fa-eye-slash"></i> Show Unavailable</button>
         <button class="modal-close" aria-label="Close" onclick="closeModal('modal-army-bg-unit')"><i class="fa-solid fa-xmark"></i></button>
@@ -1167,7 +1167,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <!-- ===== ARMY: ADD TF TO BG MODAL ===== -->
 <div id="modal-army-bg-tf" class="modal-bg">
   <div class="modal">
-    <div class="modal-header">Add Entire Task Force <button class="modal-close" aria-label="Close" onclick="closeModal('modal-army-bg-tf')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-header"><span data-term-tpl="Add Entire {taskForce}">Add Entire Task Force</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-army-bg-tf')"><i class="fa-solid fa-xmark"></i></button></div>
     <div style="font-size:11px;color:#8b949e;margin-bottom:8px">All units from the selected task force will be added to this battle group.</div>
     <div class="scrolllist" id="bg-tf-list"></div>
     <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">
@@ -1202,7 +1202,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <div id="modal-force" class="modal-bg">
   <div class="modal">
     <div class="modal-header">
-      <span id="force-modal-title">New Expeditionary Force</span>
+      <span id="force-modal-title" data-term-tpl="New {force}">New Expeditionary Force</span>
       <button class="modal-close" aria-label="Close" onclick="closeModal('modal-force')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="form-group" style="margin-bottom:12px">
@@ -1272,7 +1272,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 <div id="modal-bg-notes" class="modal-bg">
   <div class="modal">
     <div class="modal-header">
-      <span>Battle Group Description</span>
+      <span data-term-tpl="{battleGroup} Description">Battle Group Description</span>
       <button class="modal-close" aria-label="Close" onclick="closeModal('modal-bg-notes')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <input type="hidden" id="bg-notes-army-id">
@@ -1386,7 +1386,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
       <div class="form-group" style="margin-bottom:12px">
         <label>Trait Type</label>
         <select id="ct-type" style="width:auto" onchange="updateReqTraitDropdown()">
-          <option value="stand">Stand</option>
+          <option value="stand" data-term="stand">Stand</option>
           <option value="weapon">Weapon</option>
         </select>
       </div>
