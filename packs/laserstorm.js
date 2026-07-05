@@ -16,7 +16,11 @@
 // names are the legacy identifiers). This boundary is the seed of a
 // multi-game engine: a different game would ship a different GAME object.
 const GAME = {
-  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition" },
+  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition",
+    title: "LaserStorm Force Builder",
+    brand: "LaserStorm Force Builder",
+    buyUrl: "https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654",
+    buyLabel: "Buy LaserStorm" },
   traits: {},       // stand/weapon trait pools + structured requirements
   classes: null,    // stand-class costing profiles (size, mult, saves...)
   classProfiles: null, // tactical reference table shown on the cost card

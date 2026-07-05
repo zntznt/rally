@@ -2503,6 +2503,26 @@ function rebuildFactionSelect(selectValue) {
   builderFactionPrev = sel.value;
 }
 
+// Apply the GAME pack's branding to the static shell chrome (title, nav-brand,
+// Buy link) so each game looks like its own app. buyUrl is optional: a pack
+// without a storefront leaves the Buy link hidden.
+function applyBranding() {
+  const m = GAME.meta || {};
+  document.title = m.title || `${m.name || "Rally"} Force Builder`;
+  const brand = document.getElementById("nav-brand");
+  if(brand) brand.textContent = m.brand || m.title || m.name || "Force Builder";
+  const buy = document.getElementById("nav-buy-link");
+  if(buy) {
+    if(m.buyUrl) {
+      buy.href = m.buyUrl;
+      buy.textContent = m.buyLabel || `Buy ${m.name || ""}`.trim();
+      buy.style.display = "";          // let the mobile CSS rule hide it on small screens
+    } else {
+      buy.style.display = "none";
+    }
+  }
+}
+
 // Populate the builder's Class <select> from GAME.classes rather than a
 // hardcoded HTML option list, so a different game's classes appear without
 // editing the shell. Preserves the current selection across rebuilds.
@@ -8479,6 +8499,7 @@ function renderAll() {
 }
 
 loadState();
+applyBranding();             // title / nav-brand / Buy link from GAME.meta
 renderBuilderStatInputs();   // build the stat inputs from GAME.schema before anything touches them
 rebuildClassSelect();        // populate Class <select> from GAME.classes before resetBuilder reads it
 resetBuilder();

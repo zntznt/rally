@@ -11,7 +11,10 @@
 // This pack provides the whole surface the laserstorm pack does, minimally.
 
 const GAME = {
-  meta: { id: "skirmish", name: "Skirmish", edition: "Proof of Concept" },
+  meta: { id: "skirmish", name: "Skirmish", edition: "Proof of Concept",
+    title: "Skirmish Force Builder",
+    brand: "Skirmish Force Builder" },
+    // no buyUrl: a pack without a storefront hides the Buy link entirely.
   traits: {}, classes: null, classProfiles: null, factions: {}, units: null,
   tacticalAssets: null, orgCharts: null, deployment: {}, org: {}, cost: {}, transport: {},
 };
@@ -232,10 +235,13 @@ GAME.schema = {
       Red Coalition / Blue Federation. (Both proven behavior-identical for
       LaserStorm by the golden masters: points + render IDENTICAL.)
 
-   STILL LEAKING (cosmetic — app is usable, these are branding/terminology):
-   3. <title> + .nav-brand = "LaserStorm Force Builder" (shell.html); the "Buy
-      LaserStorm" affiliate link (shell.html) with a wargamevault URL. Should
-      read GAME.meta.name and an optional GAME.meta.buyUrl/buyLabel.
+   FIXED (branding seam):
+   3. [FIXED] <title>, .nav-brand, and the Buy link were hardcoded LaserStorm.
+      Now applyBranding() reads GAME.meta.{title,brand,buyUrl,buyLabel} at boot;
+      the shell ships those slots empty. Skirmish shows "Skirmish Force Builder"
+      and hides the Buy link (no buyUrl). LaserStorm unchanged (masters IDENTICAL).
+
+   STILL LEAKING (cosmetic — app is usable, these are deeper/terminology):
    4. The class-rules strip under the builder renders GAME.classProfiles columns
       literally (Double-Time / Snap / Transport headers) — those column HEADERS
       are LaserStorm-shaped and live in the engine's profile renderer, not the

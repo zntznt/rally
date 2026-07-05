@@ -429,7 +429,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 </head>
 <body>
 <nav>
-  <div class="nav-brand">LaserStorm Force Builder</div>
+  <div class="nav-brand" id="nav-brand"><!-- set from GAME.meta.brand by applyBranding() --></div>
   <div class="nav-tabs">
     <div class="nav-tab" id="tab-builder" onclick="showPage('builder')" title="Unit Builder"><i class="fa-solid fa-hammer"></i><span class="nav-label">Unit Builder</span></div>
     <div class="nav-tab" id="tab-library" onclick="showPage('library')" title="Unit Library"><i class="fa-solid fa-book-open"></i><span class="nav-label">Unit Library</span></div>
@@ -440,7 +440,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
     <div class="nav-tab" id="tab-data" onclick="showPage('data')" title="Data"><i class="fa-solid fa-database"></i><span class="nav-label">Data</span></div>
   </div>
   <button id="nav-undo-btn" onclick="undoState()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
-  <a href="https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'">Buy LaserStorm</a>
+  <!-- href/label/visibility set from GAME.meta.buyUrl/buyLabel by applyBranding(); hidden when the pack has no storefront. -->
+  <a id="nav-buy-link" href="#" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s;display:none" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'"></a>
 </nav>
 
 <!-- Reminds the user to export a backup, since all data lives only in localStorage -->

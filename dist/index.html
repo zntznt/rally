@@ -429,7 +429,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 </head>
 <body>
 <nav>
-  <div class="nav-brand">LaserStorm Force Builder</div>
+  <div class="nav-brand" id="nav-brand"><!-- set from GAME.meta.brand by applyBranding() --></div>
   <div class="nav-tabs">
     <div class="nav-tab" id="tab-builder" onclick="showPage('builder')" title="Unit Builder"><i class="fa-solid fa-hammer"></i><span class="nav-label">Unit Builder</span></div>
     <div class="nav-tab" id="tab-library" onclick="showPage('library')" title="Unit Library"><i class="fa-solid fa-book-open"></i><span class="nav-label">Unit Library</span></div>
@@ -440,7 +440,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
     <div class="nav-tab" id="tab-data" onclick="showPage('data')" title="Data"><i class="fa-solid fa-database"></i><span class="nav-label">Data</span></div>
   </div>
   <button id="nav-undo-btn" onclick="undoState()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
-  <a href="https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'">Buy LaserStorm</a>
+  <!-- href/label/visibility set from GAME.meta.buyUrl/buyLabel by applyBranding(); hidden when the pack has no storefront. -->
+  <a id="nav-buy-link" href="#" target="_blank" rel="noopener" class="nav-buy-link" style="margin-left:auto;margin-right:12px;padding:5px 13px;background:#007eff;color:#fff;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-decoration:none;white-space:nowrap;transition:background .2s;display:none" onmouseover="this.style.background='#0066cc'" onmouseout="this.style.background='#007eff'"></a>
 </nav>
 
 <!-- Reminds the user to export a backup, since all data lives only in localStorage -->
@@ -1451,7 +1452,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 // names are the legacy identifiers). This boundary is the seed of a
 // multi-game engine: a different game would ship a different GAME object.
 const GAME = {
-  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition" },
+  meta: { id: "laserstorm", name: "LaserStorm", edition: "2nd Edition",
+    title: "LaserStorm Force Builder",
+    brand: "LaserStorm Force Builder",
+    buyUrl: "https://www.wargamevault.com/product/476399/laserstorm-2nd-edition?affiliate_id=564654",
+    buyLabel: "Buy LaserStorm" },
   traits: {},       // stand/weapon trait pools + structured requirements
   classes: null,    // stand-class costing profiles (size, mult, saves...)
   classProfiles: null, // tactical reference table shown on the cost card
@@ -4456,6 +4461,26 @@ function rebuildFactionSelect(selectValue) {
   sel.value = selectValue;
   if(sel.value !== selectValue) sel.value = "";   // selected faction was deleted
   builderFactionPrev = sel.value;
+}
+
+// Apply the GAME pack's branding to the static shell chrome (title, nav-brand,
+// Buy link) so each game looks like its own app. buyUrl is optional: a pack
+// without a storefront leaves the Buy link hidden.
+function applyBranding() {
+  const m = GAME.meta || {};
+  document.title = m.title || `${m.name || "Rally"} Force Builder`;
+  const brand = document.getElementById("nav-brand");
+  if(brand) brand.textContent = m.brand || m.title || m.name || "Force Builder";
+  const buy = document.getElementById("nav-buy-link");
+  if(buy) {
+    if(m.buyUrl) {
+      buy.href = m.buyUrl;
+      buy.textContent = m.buyLabel || `Buy ${m.name || ""}`.trim();
+      buy.style.display = "";          // let the mobile CSS rule hide it on small screens
+    } else {
+      buy.style.display = "none";
+    }
+  }
 }
 
 // Populate the builder's Class <select> from GAME.classes rather than a
@@ -10434,6 +10459,7 @@ function renderAll() {
 }
 
 loadState();
+applyBranding();             // title / nav-brand / Buy link from GAME.meta
 renderBuilderStatInputs();   // build the stat inputs from GAME.schema before anything touches them
 rebuildClassSelect();        // populate Class <select> from GAME.classes before resetBuilder reads it
 resetBuilder();
