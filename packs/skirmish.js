@@ -13,7 +13,9 @@
 const GAME = {
   meta: { id: "skirmish", name: "Skirmish", edition: "Proof of Concept",
     title: "Skirmish Force Builder",
-    brand: "Skirmish Force Builder" },
+    brand: "Skirmish Force Builder",
+    // Own storage identity, isolated from LaserStorm's saves.
+    storageKey: "ls_skirmish", appTag: "skirmish-army-builder", filePrefix: "skirmish" },
     // no buyUrl: a pack without a storefront hides the Buy link entirely.
 
   // Skirmish's own vocabulary — proves GAME.terms flows through the engine.
@@ -284,7 +286,20 @@ GAME.schema = {
       and inline counts lowercase (via Tn() / .toLowerCase()), so LaserStorm's
       cards render byte-identically and render_master stayed IDENTICAL - no
       baseline update needed.
-   8. import/export envelope app-tag (still "laserstorm-army-builder") + the
-      localStorage key "ls_army_builder" + download filenames. Making these
-      GAME.meta.id-derived needs a migration read of the old key so existing
-      saved armies survive. Its own careful slice (data-loss risk). */
+   8. [FIXED] The import/export app-tag, localStorage key, and download
+      filenames are now pack-overridable via GAME.meta.{storageKey,appTag,
+      filePrefix}. LaserStorm PINS them to the legacy values (ls_army_builder /
+      laserstorm-army-builder / laserstorm) so existing saves and exports carry
+      ZERO migration risk. Skirmish declares its own (ls_skirmish /
+      skirmish-army-builder / skirmish). Safety nets, all test-covered:
+      - loadState() falls back to the legacy "ls_army_builder" key when a pack's
+        own key is empty, so a renamed-key pack adopts existing data instead of
+        orphaning it (and leaves the legacy key intact as a rollback path).
+      - import validators accept BOTH the pack's tag AND the legacy literal, so
+        old export files still import into any build.
+      Verified on a skirmish build: adopts legacy data, writes forward under
+      ls_skirmish, legacy key preserved, both legacy and own-tag imports accepted.
+
+   ALL EIGHT identified leaks are now addressed EXCEPT #6 (static shell.html
+   scaffolding labels), which is purely cosmetic and needs element-ids + a boot
+   textContent sweep. */

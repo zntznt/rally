@@ -88,17 +88,19 @@ behavior-preserving.
 
 The golden masters snapshot *math* and *rendering*. The functional suite guards
 *stateful UI flows* the masters can't see — the paths where a bug loses or
-corrupts a user's data. It is pass/fail (no baseline file): 9 assertions
+corrupts a user's data. It is pass/fail (no baseline file): 12 assertions
 covering save/reload persistence, undo, `deleteTF`/`deleteArmy` cascades (no
 dangling references left behind), army export→import round-trip, import
 validation (`_parseImportArmyText` accepts only correctly-tagged army exports),
 crafted-import XSS sanitization (faction `icon`/`color` are interpolated into
-attributes unescaped and rely on `_migrateState` to neutralize them), and
-corrupt-`localStorage` recovery.
+attributes unescaped and rely on `_migrateState` to neutralize them),
+corrupt-`localStorage` recovery, and the pack-overridable storage identity
+(storage key + app tag resolve, legacy app-tag still imports, and the
+migration read adopts data left under the legacy `ls_army_builder` key).
 
 ```bash
 python3 -m http.server 3001 --directory dist &
-npm run functional            # -> "functional: 9/9 passed", exit 0 on pass
+npm run functional            # -> "functional: 12/12 passed", exit 0 on pass
 ```
 
 Run it after any change that touches state, persistence, delete/import logic, or

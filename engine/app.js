@@ -172,11 +172,11 @@ function saveState() {
   _unitIdCache = null;
   _calcPtsCache = null;
   _slotAssignedMap = null;
-  const prev = localStorage.getItem("ls_army_builder") || _EMPTY_STATE;
+  const prev = localStorage.getItem(storageKey()) || _EMPTY_STATE;
   _undoStack.push(prev);
   if (_undoStack.length > _UNDO_LIMIT) _undoStack.shift();
   _updateUndoBtn();
-  localStorage.setItem("ls_army_builder", JSON.stringify(state));
+  localStorage.setItem(storageKey(), JSON.stringify(state));
   const _bm = _loadBackupMeta();
   _bm.saves = (_bm.saves || 0) + 1;
   _saveBackupMeta(_bm);
@@ -189,7 +189,7 @@ function undoState() {
   _slotAssignedMap = null;
   if (!_undoStack.length) return;
   const prev = _undoStack.pop();
-  localStorage.setItem("ls_army_builder", prev);
+  localStorage.setItem(storageKey(), prev);
   const saved = JSON.parse(prev);
   state.customUnits = saved.customUnits || [];
   state.customFactions = saved.customFactions || [];
@@ -301,7 +301,13 @@ function loadState() {
   _unitIdCache = null;
   _calcPtsCache = null;
   _slotAssignedMap = null;
-  const raw = localStorage.getItem("ls_army_builder");
+  // Migration read: prefer this pack's key; if empty, adopt data left under the
+  // legacy "ls_army_builder" key (a pack that renamed its key inherits existing
+  // saves instead of orphaning them). For LaserStorm storageKey() IS the legacy
+  // key, so this is a plain read with no behavior change. The first saveState()
+  // then persists forward under storageKey().
+  let raw = localStorage.getItem(storageKey());
+  if (!raw && storageKey() !== _LEGACY_STORAGE_KEY) raw = localStorage.getItem(_LEGACY_STORAGE_KEY);
   if (raw) {
     try {
       const saved = JSON.parse(raw);
@@ -320,14 +326,14 @@ function loadState() {
       if (needsStamp) {
         state.schemaVersion = SCHEMA_VERSION;
         // Persist stamp directly so old saves are upgraded on disk right away
-        localStorage.setItem("ls_army_builder", JSON.stringify(state));
+        localStorage.setItem(storageKey(), JSON.stringify(state));
       }
       // Always run: drop BG entries left dangling by deletions since last save
       pruneOrphanedBGEntries();
     } catch(e) {
       // Don't let the next saveState() overwrite a possibly hand-recoverable
       // save - stash the corrupt payload under a side key first.
-      try { localStorage.setItem("ls_army_builder_corrupt", raw); } catch(e2) {}
+      try { localStorage.setItem(corruptKey(), raw); } catch(e2) {}
     }
   }
 }
@@ -434,6 +440,20 @@ function T(key) {
 function Tn(n, singularKey) {
   return (n === 1 ? T(singularKey) : T(singularKey + "s")).toLowerCase();
 }
+
+// ── Storage / export identity (pack-overridable) ──────────
+// The legacy LaserStorm build used the literal key "ls_army_builder" and the
+// export tag "laserstorm-army-builder". Packs pin these via GAME.meta so a
+// different game gets isolated storage without orphaning existing saves.
+const _LEGACY_STORAGE_KEY = "ls_army_builder";
+const _LEGACY_APP_TAG     = "laserstorm-army-builder";
+function storageKey()   { return (GAME.meta && GAME.meta.storageKey) || _LEGACY_STORAGE_KEY; }
+function corruptKey()   { return storageKey() + "_corrupt"; }
+function appTag()       { return (GAME.meta && GAME.meta.appTag) || _LEGACY_APP_TAG; }
+function filePrefix()   { return (GAME.meta && GAME.meta.filePrefix) || (GAME.meta && GAME.meta.id) || "rally"; }
+// Import accepts this pack's tag AND the legacy literal, so old export files
+// (always tagged "laserstorm-army-builder") still import into any build.
+function importTagOk(tag) { return tag === appTag() || tag === _LEGACY_APP_TAG; }
 
 function confirmBtn(btn, action, ms=5000) {
   if (btn._confirming) {
@@ -923,7 +943,7 @@ function showPage(p) {
 let _pendingImport = null;     // parsed payload awaiting import
 let _fullImportArmed = false;  // two-step confirm for destructive full import
 let _exportJSONStr = "";       // last generated export JSON (download fallback)
-let _exportFilename = "laserstorm-export.json";
+let _exportFilename = filePrefix()+"-export.json";
 
 // Categories shown in the selective export picker, listed roughly in
 // dependency order. Each entry: state key, label, FontAwesome icon, and
@@ -1136,9 +1156,9 @@ function doExportSelection(){
   if(!explicit){ _dataMsg("data-export-msg","error","Tick at least one item to export."); return; }
   const bundle = collectSelectionBundle();
   const data={}; EXPORT_CATS.forEach(c=>{ if(bundle[c.key].length) data[c.key]=bundle[c.key]; });
-  const payload = { app:"laserstorm-army-builder", kind:"selection", version:1, exportedAt:new Date().toISOString(), data };
+  const payload = { app:appTag(), kind:"selection", version:1, exportedAt:new Date().toISOString(), data };
   const summary = EXPORT_CATS.filter(c=>bundle[c.key].length).map(c=>`${bundle[c.key].length} ${c.label.toLowerCase()}`).join(", ");
-  _openExportModal(payload, "Export - Selection", summary, "laserstorm-selection");
+  _openExportModal(payload, "Export - Selection", summary, filePrefix()+"-selection");
 }
 
 function doExportFullBackup(){
@@ -1149,10 +1169,10 @@ function doExportFullBackup(){
     armies:state.armies||[], expeditionaryForces:state.expeditionaryForces||[],
     tfTemplates:state.tfTemplates||[]
   };
-  const payload = { app:"laserstorm-army-builder", kind:"full", version:1, exportedAt:new Date().toISOString(), data };
+  const payload = { app:appTag(), kind:"full", version:1, exportedAt:new Date().toISOString(), data };
   const summary = `${data.customUnits.length} unit(s), ${data.customFactions.length} faction(s), ${data.taskForces.length} task force(s), ${data.armies.length} army(ies)`;
   _markBackedUp();
-  _openExportModal(payload, "Export - Full Backup", summary, "laserstorm-backup");
+  _openExportModal(payload, "Export - Full Backup", summary, filePrefix()+"-backup");
 }
 
 function _openExportModal(payload, title, summary, fnameBase){
@@ -1178,13 +1198,13 @@ function downloadExportJSON(){
     const p = JSON.parse(json);
     const stamp = new Date().toISOString().slice(0,10);
     const base =
-      p.kind==="army"      ? "laserstorm-army-"+(p.armyName||"") :
-      p.kind==="taskforce" ? "laserstorm-tf-"+(p.taskForceName||(p.data&&p.data.taskForce&&p.data.taskForce.name)||"") :
-      p.kind==="full"      ? "laserstorm-backup" :
-      p.kind==="faction"   ? "laserstorm-faction-"+(p.faction||"") :
-      p.kind==="force"     ? "laserstorm-force-"+((p.data&&p.data.force&&p.data.force.name)||"") :
-                             "laserstorm-selection";
-    fname = (base.replace(/[^a-z0-9\-]+/gi,"_").replace(/_+/g,"_").replace(/^_|_$/g,"")||"laserstorm-export")+"-"+stamp+".json";
+      p.kind==="army"      ? filePrefix()+"-army-"+(p.armyName||"") :
+      p.kind==="taskforce" ? filePrefix()+"-tf-"+(p.taskForceName||(p.data&&p.data.taskForce&&p.data.taskForce.name)||"") :
+      p.kind==="full"      ? filePrefix()+"-backup" :
+      p.kind==="faction"   ? filePrefix()+"-faction-"+(p.faction||"") :
+      p.kind==="force"     ? filePrefix()+"-force-"+((p.data&&p.data.force&&p.data.force.name)||"") :
+                             filePrefix()+"-selection";
+    fname = (base.replace(/[^a-z0-9\-]+/gi,"_").replace(/_+/g,"_").replace(/^_|_$/g,"")||(filePrefix()+"-export"))+"-"+stamp+".json";
   } catch(e){}
   const blob = new Blob([json], {type:"application/json"});
   const url = URL.createObjectURL(blob);
@@ -1253,7 +1273,7 @@ function _parseImportDataText(){
   let payload;
   try { payload = JSON.parse(raw); }
   catch(err){ _dataMsg("data-import-msg","error","Not valid JSON - check for missing brackets or commas."); return; }
-  if(!payload || payload.app!=="laserstorm-army-builder" || !payload.data){
+  if(!payload || !importTagOk(payload.app) || !payload.data){
     _dataMsg("data-import-msg","error","This doesn't look like a LaserStorm export - missing required fields."); return;
   }
   _pendingImport = payload;
@@ -1618,7 +1638,7 @@ function exportArmy(armyId) {
   const bundle = collectArmyBundle(armyId);
   if(!bundle) return;
   const payload = {
-    app:"laserstorm-army-builder", kind:"army", version:1,
+    app:appTag(), kind:"army", version:1,
     exportedAt:new Date().toISOString(), armyName:bundle.army.name,
     data:bundle
   };
@@ -1672,7 +1692,7 @@ function _parseImportArmyText() {
   let payload;
   try { payload = JSON.parse(raw); }
   catch(e){ _dataMsg("import-army-msg","error","Not valid JSON - check for missing brackets or commas."); return; }
-  if(!payload||payload.app!=="laserstorm-army-builder"||!payload.data){
+  if(!payload||!importTagOk(payload.app)||!payload.data){
     _dataMsg("import-army-msg","error","This doesn't look like a LaserStorm export - missing required fields."); return;
   }
   if(payload.kind!=="army"){
@@ -4880,7 +4900,7 @@ function exportTF(tfId) {
   const bundle = collectTFBundle(tfId);
   if(!bundle) return;
   const payload = {
-    app:"laserstorm-army-builder", kind:"taskforce", version:1,
+    app:appTag(), kind:"taskforce", version:1,
     exportedAt:new Date().toISOString(), tfName:bundle.taskForce.name,
     data:bundle
   };
@@ -4936,7 +4956,7 @@ function _parseImportTFText() {
   let payload;
   try { payload = JSON.parse(raw); }
   catch(e){ _dataMsg("import-tf-msg","error","Not valid JSON - check for missing brackets or commas."); return; }
-  if(!payload||payload.app!=="laserstorm-army-builder"||!payload.data){
+  if(!payload||!importTagOk(payload.app)||!payload.data){
     _dataMsg("import-tf-msg","error","This doesn't look like a LaserStorm export - missing required fields."); return;
   }
   if(payload.kind!=="taskforce"){
@@ -8272,7 +8292,7 @@ function exportForce(forceId) {
   const bundle = collectForceBundle(forceId);
   if(!bundle) return;
   const payload = {
-    app:"laserstorm-army-builder", kind:"force", version:1,
+    app:appTag(), kind:"force", version:1,
     exportedAt:new Date().toISOString(), forceName:bundle.force.name,
     data:bundle
   };
@@ -8328,7 +8348,7 @@ function _parseImportForceText() {
   let payload;
   try { payload = JSON.parse(raw); }
   catch(e){ _dataMsg("import-force-msg","error","Not valid JSON - check for missing brackets or commas."); return; }
-  if(!payload||payload.app!=="laserstorm-army-builder"||!payload.data){
+  if(!payload||!importTagOk(payload.app)||!payload.data){
     _dataMsg("import-force-msg","error","This doesn't look like a LaserStorm export - missing required fields."); return;
   }
   if(payload.kind!=="force"){
