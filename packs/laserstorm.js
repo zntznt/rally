@@ -30,6 +30,29 @@ const GAME = {
   orgCharts: null,  // built-in task-force compositions (slot min/max per class)
   deployment: {},   // deployment types: labels + cost-column mapping
   org: {},          // force-organization ratios & taxonomy constants
+  // User-facing vocabulary. The engine reads these through T("key") with a
+  // built-in fallback, so a pack that omits a term still renders sensibly and
+  // a different game can rename its containers/units without touching the engine.
+  terms: {
+    stand: "Stand", stands: "Stands",
+    standTraits: "Stand Traits",
+    taskForce: "Task Force", taskForces: "Task Forces",
+    taskForceType: "Task Force Type", taskForceTypes: "Task Force Types",
+    commander: "Commander",
+    battleGroup: "Battle Group", battleGroups: "Battle Groups",
+    army: "Army", armies: "Armies",
+    force: "Expeditionary Force", forces: "Expeditionary Forces",
+    classRules: "read-only class rules",
+    // class-profile column headers (Category 2)
+    profileCols: [
+      { key: "save",      label: "Save" },
+      { key: "dtime",     label: "Double-Time" },
+      { key: "assault",   label: "Assault" },
+      { key: "vuln",      label: "Vulnerable" },
+      { key: "snap",      label: "Snap" },
+      { key: "transport", label: "Transport" },
+    ],
+  },
   cost: {},         // points engine
   transport: {},    // mechanized transport rules
 };

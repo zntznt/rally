@@ -15,6 +15,27 @@ const GAME = {
     title: "Skirmish Force Builder",
     brand: "Skirmish Force Builder" },
     // no buyUrl: a pack without a storefront hides the Buy link entirely.
+
+  // Skirmish's own vocabulary — proves GAME.terms flows through the engine.
+  terms: {
+    stand: "Model", stands: "Models",
+    standTraits: "Model Rules",
+    taskForce: "Squad", taskForces: "Squads",
+    taskForceType: "Squad Type", taskForceTypes: "Squad Types",
+    commander: "Sergeant",
+    battleGroup: "Detachment", battleGroups: "Detachments",
+    army: "Warband", armies: "Warbands",
+    force: "Campaign Roster", forces: "Campaign Rosters",
+    classRules: "read-only unit rules",
+    profileCols: [
+      { key: "save", label: "Save" },
+      { key: "dtime", label: "Advance" },
+      { key: "assault", label: "Melee" },
+      { key: "vuln", label: "Weak vs" },
+      { key: "snap", label: "Overwatch" },
+      { key: "transport", label: "Transport" },
+    ],
+  },
   traits: {}, classes: null, classProfiles: null, factions: {}, units: null,
   tacticalAssets: null, orgCharts: null, deployment: {}, org: {}, cost: {}, transport: {},
 };
@@ -241,14 +262,26 @@ GAME.schema = {
       the shell ships those slots empty. Skirmish shows "Skirmish Force Builder"
       and hides the Buy link (no buyUrl). LaserStorm unchanged (masters IDENTICAL).
 
-   STILL LEAKING (cosmetic — app is usable, these are deeper/terminology):
-   4. The class-rules strip under the builder renders GAME.classProfiles columns
-      literally (Double-Time / Snap / Transport headers) — those column HEADERS
-      are LaserStorm-shaped and live in the engine's profile renderer, not the
-      pack. A different game's profile keys would want different headers.
+   FIXED (terminology seam — GAME.terms + T() helper):
+   4. [FIXED] The class-rules strip column headers are now pack-driven via
+      GAME.terms.profileCols; skirmish shows Advance / Melee / Weak vs /
+      Overwatch instead of LaserStorm's Double-Time / Assault / Vulnerable / Snap.
+   5. [PARTLY FIXED] Engine-rendered "Task Force"/"Army"/etc terminology now
+      reads GAME.terms via T() (skirmish: Squad / Warband / Detachment / Model).
+      This covers the DYNAMIC UI (JS-rendered lists, modals, empty states,
+      export category labels). Both masters stay IDENTICAL for LaserStorm
+      because its terms ARE the original words.
 
-   NOT YET EXERCISED (need a click-through pass): traits UI wording, the
-   "Stand"/"Task Force" terminology strings baked into the engine, org-chart UI,
-   and the import/export envelope app-tag (still "laserstorm-army-builder", so a
-   skirmish export won't import into a skirmish build's validator). Left for a
-   follow-up per the handover's "don't fix it all at once". */
+   STILL LEAKING (deferred to later slices):
+   6. STATIC shell.html scaffolding labels (~34 strings: nav tab labels, modal
+      titles, section headers) are still literal "Task Force"/"Stand" - they're
+      static HTML with no T() access. Making them pack-driven needs element ids +
+      a boot-time textContent sweep. Follow-up slice.
+   7. GUARDED card-renderer "Stand"/"stands"/"Stand Traits" (app.js ~754-830,
+      6482-6582) render INSIDE the card HTML the render master captures. Changing
+      them will move render_master and needs a deliberate baseline update.
+      Separate slice.
+   8. import/export envelope app-tag (still "laserstorm-army-builder") + the
+      localStorage key "ls_army_builder" + download filenames. Making these
+      GAME.meta.id-derived needs a migration read of the old key so existing
+      saved armies survive. Its own careful slice (data-loss risk). */
