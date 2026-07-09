@@ -466,14 +466,59 @@ function emitInstance(p) {
     return "  " + J(o) + ",";
   }).join("\n");
   const ca = p.instance.costAdjust || {};
-  const adjust = ca.field ? `
-GAME.cost.instanceAdjust = ${J2({ preset: ca.preset || "bracketTable", field: ca.field,
-    baseline: ca.baseline, brackets: ca.brackets || [] })};` : "";
+  let adjust = "";
+  if (ca.field && ca.preset === "custom" && String(ca.customSource||"").trim()) {
+    adjust = `
+GAME.cost.instanceAdjust = (${ca.customSource.trim()});
+{
+  const _base = GAME.cost.unitCost;
+  GAME.cost.unitCost = function (unit, ctx) {
+    const r = _base(unit, ctx);
+    if (!ctx || !ctx.mods || ctx.mods[${J(ca.field)}] == null) return r;
+    const adjusted = GAME.cost.instanceAdjust(r.perStand, ctx.mods, unit);
+    const d = adjusted - r.perStand;
+    if (!d) return r;
+    const out = Object.assign({}, r);
+    out.perStand += d; out.unitPts += d * r.unitSize;
+    out.indPts += d; out.cmdPts += d; out.heroPts += d; out.cmdHeroPts += d;
+    out.breakdown = Object.assign({}, r.breakdown, { standPts: r.breakdown.standPts + d,
+      standComps: r.breakdown.standComps.concat([{ label: ${J(ca.field)} + " " + ctx.mods[${J(ca.field)}], val: d }]) });
+    return out;
+  };
+}`;
+  } else if (ca.field) {
+    adjust = `
+// Bracket-table instance repricing (e.g. Alpha Strike pilot skill): the delta
+// per step away from baseline depends on the unit's base cost bracket.
+GAME.cost.instanceAdjust = ${J2({ preset: "bracketTable", field: ca.field,
+    baseline: ca.baseline, brackets: ca.brackets || [] })};
+{
+  const _base = GAME.cost.unitCost;
+  GAME.cost.unitCost = function (unit, ctx) {
+    const r = _base(unit, ctx);
+    const adj = GAME.cost.instanceAdjust;
+    const v = ctx && ctx.mods ? ctx.mods[adj.field] : undefined;
+    if (v == null || v === adj.baseline) return r;
+    const steps = adj.baseline - v;   // below baseline = better
+    let bracket = adj.brackets[adj.brackets.length - 1];
+    for (const b of adj.brackets) if (r.perStand <= b.ptsMax) { bracket = b; break; }
+    if (!bracket) return r;
+    const d = Math.abs(steps) * (steps > 0 ? (bracket.perStepBetter || 0) : (bracket.perStepWorse || 0));
+    if (!d) return r;
+    const out = Object.assign({}, r);
+    out.perStand += d; out.unitPts += d * r.unitSize;
+    out.indPts += d; out.cmdPts += d; out.heroPts += d; out.cmdHeroPts += d;
+    out.breakdown = Object.assign({}, r.breakdown, { standPts: r.breakdown.standPts + d,
+      standComps: r.breakdown.standComps.concat([{ label: adj.field + " " + v, val: d }]) });
+    return out;
+  };
+}`;
+  }
   return `
 // ── PER-INSTANCE FIELDS ──────────────────────────────────
-// Declared now, honored when the engine's instance-mods phase lands: the
-// current engine ignores GAME.schema.instance entirely. Rebuild this pack
-// against a newer engine to activate per-instance editing/repricing.
+// The engine renders instance editors/badges from GAME.schema.instance and
+// passes non-costInert mods to unitCost as ctx.mods (older engines ignore
+// both, so this pack degrades to stock-only there).
 GAME.schema.instance = [
 ${fields}
 ];${adjust}`;
