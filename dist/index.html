@@ -2429,6 +2429,16 @@ function T(key) {
 function Tn(n, singularKey) {
   return (n === 1 ? T(singularKey) : T(singularKey + "s")).toLowerCase();
 }
+// Transport/attachment flavor strings, pack-overridable via
+// GAME.terms.transportNouns. LaserStorm's originals are the defaults so packs
+// that don't declare them render identically; a pack whose "transport" is a
+// horse team or a dropship overrides the nouns without touching the engine.
+function transportNouns() {
+  return Object.assign(
+    { action:"Mechanize", paired:"Mechanized", badge:"Transport", icon:"fa-truck",
+      rider:"infantry", riderByClass:{ fg:"gun" } },
+    (GAME.terms && GAME.terms.transportNouns) || {});
+}
 
 // ── Storage / export identity (pack-overridable) ──────────
 // The legacy LaserStorm build used the literal key "ls_army_builder" and the
@@ -2526,7 +2536,12 @@ function classLabel(c) { return (CLASS_INFO[c]||{}).label||c; }
 function classBadge(c, noTip) {
   const cp = CLASS_PROFILE[c], ci = CLASS_INFO[c]||{};
   if(!cp || noTip) return `<span class="badge badge-${c}">${classLabel(c)}</span>`;
-  const tip = `${ci.label} - ${cp.cat}. Save ${cp.save} | Assault ${cp.assault} | Vulnerable ${cp.vuln} | Snap ${cp.snap} | Transport ${cp.transport}.`;
+  // Tooltip columns are pack-overridable (GAME.terms.profileTipCols); the
+  // fallback is the legacy LaserStorm five, NOT profileCols, because the strip
+  // shows all columns while this tooltip historically omits dtime.
+  const tipCols = (GAME.terms && GAME.terms.profileTipCols) ||
+    [{key:"save",label:"Save"},{key:"assault",label:"Assault"},{key:"vuln",label:"Vulnerable"},{key:"snap",label:"Snap"},{key:"transport",label:"Transport"}];
+  const tip = `${ci.label} - ${cp.cat}. ` + tipCols.map(c => `${c.label} ${cp[c.key]}`).join(" | ") + `.`;
   return `<span class="badge badge-${c} tip" data-tip="${esc(tip)}">${classLabel(c)}</span>`;
 }
 function roleBadge(r) { return `<span class="badge badge-${r}">${r}</span>`; }
@@ -2867,13 +2882,14 @@ function mechPairCardHTML(infUnit, tuUnit, n, actionsHTML, viewType, opts={}) {
       </div>`;
   }
   const tuPtsVal = calcPoints(tuUnit).perStand;
-  const transportTag = `<span class="badge" style="background:#1a2a1a;color:#66bb6a;border:1px solid #66bb6a44">Transport</span>`;
+  const tn = transportNouns();
+  const transportTag = `<span class="badge" style="background:#1a2a1a;color:#66bb6a;border:1px solid #66bb6a44">${esc(tn.badge)}</span>`;
   return `<div class="unit-card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:stretch">
       ${halfInner(infUnit, viewType, {tfBadge: opts.tfBadge||""})}
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;background:#0d1a0d;border-left:1px solid #1e3a1e55;border-right:1px solid #1e3a1e55;gap:5px;min-width:28px;flex-shrink:0">
-        <i class="fa-solid fa-truck" style="color:#66bb6a;font-size:13px"></i>
-        <span style="font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.7px;color:#4a8a4a;writing-mode:vertical-rl;transform:rotate(180deg)">Mechanized</span>
+        <i class="fa-solid ${esc(tn.icon)}" style="color:#66bb6a;font-size:13px"></i>
+        <span style="font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.7px;color:#4a8a4a;writing-mode:vertical-rl;transform:rotate(180deg)">${esc(tn.paired)}</span>
       </div>
       ${halfInner(tuUnit, "unit", {countBadge: n, ptsVal: tuPtsVal, transportTag})}
     </div>
@@ -3923,7 +3939,7 @@ function onClassChange() {
   const sizeEl = document.getElementById("b-unit-size");
   if(sizeEl) {
     sizeEl.value = ci.size;
-    sizeEl.min = (cls==="sh"||cls==="beh") ? 1 : 2;
+    sizeEl.min = ci.minSize ?? ((cls==="sh"||cls==="beh") ? 1 : 2);
     const hint = document.getElementById("b-size-hint");
     if(hint) hint.textContent = `(def ${ci.size})`;
   }
@@ -4190,8 +4206,8 @@ function gatherBuilderUnit() {
   const standTraits = currentBuilderTraits.slice();
   const weapons = builderWeapons.map(w => ({...w, traits:(w.traits||[]).slice()}));
   const cls = document.getElementById("b-class").value;
-  const ci = CLASS_INFO[cls] || CLASS_INFO.inf;
-  const minSize = (cls==="sh"||cls==="beh") ? 1 : 2;
+  const ci = CLASS_INFO[cls] || CLASS_INFO[Object.keys(CLASS_INFO)[0]];
+  const minSize = ci.minSize ?? ((cls==="sh"||cls==="beh") ? 1 : 2);
   const rawSize = parseInt(document.getElementById("b-unit-size")?.value) || ci.size;
   const unit = {
     name: document.getElementById("b-name").value || "Unnamed Unit",
@@ -4331,7 +4347,10 @@ function saveToLibrary() {
     const idx = state.customUnits.findIndex(u=>u.id===editingUnitId);
     if(idx>=0) {
       unit.id = editingUnitId;
-      state.customUnits[idx] = unit;
+      // Preserve fields the builder form doesn't own (e.g. a fixed-points
+      // pack's `pts`): the gathered unit only carries schema-driven keys, so a
+      // wholesale replace would silently drop everything else.
+      state.customUnits[idx] = Object.assign({}, state.customUnits[idx], unit);
       saveState();
       renderAll();
       flashBtn("b-save-btn","Saved!");
@@ -6174,10 +6193,11 @@ function renderTFDetail() {
           const u = unitById(slot.unitId);
           if(!u) return `<div class="tf-unit-row"><span style="color:#666">[Deleted Unit]</span><button class="trait-edit-btn" onclick="confirmBtn(this,()=>removeTFSlot('${tf.id}','${slot.id}'))">Remove</button></div>`;
           const typeLabel_ = TYPE_LABELS[slot.unitType||"unit"] || "Unit";
-          const canMech = (u.class==="inf"||u.class==="fg");
+          const tn_ = transportNouns();
+          const canMech = !!GAME.transport.canRide(u.class, u);
           const tu = slot.transport ? unitById(slot.transport) : null;
           const mechBtn = canMech
-            ? `<button class="trait-edit-btn" onclick="openTransportPickerTF('${tf.id}','${slot.id}')" title="Mechanized transport"${tu?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid fa-truck"></i> ${tu?`${mechanizedCount(u,tu,slot.unitType)}&times; ${esc(tu.name)}`:"Mechanize"}</button>`
+            ? `<button class="trait-edit-btn" onclick="openTransportPickerTF('${tf.id}','${slot.id}')" title="${esc(tn_.paired)} transport"${tu?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(tn_.icon)}"></i> ${tu?`${mechanizedCount(u,tu,slot.unitType)}&times; ${esc(tu.name)}`:esc(tn_.action)}</button>`
             : "";
           const slotActions = `<div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -6447,7 +6467,8 @@ function renderAddUnitList() {
   // Filter out units from other factions if TF has a faction set
   if(tf && tf.faction === "any") { /* no filter - all factions allowed */ }
   else if(tf && tf.faction) { units = units.filter(u => !u.faction || u.faction === tf.faction); }
-  else { units = units.filter(u => u.faction === "standard" || !u.faction); }
+  else { const defFac = (GAME.factions && GAME.factions.defaultKey) || "standard";
+         units = units.filter(u => u.faction === defFac || !u.faction); }
   const list = document.getElementById("addunit-list");
   const rows = units.map(u => {
     const pts = calcPoints(u);
@@ -7390,13 +7411,13 @@ function slotRemainingQty(army, slot) {
 
 function mechanizedCount(infUnit, transportUnit, unitType) {
   if (!infUnit || !transportUnit) return 0;
-  if (!GAME.transport.canRide(infUnit.class)) return 0;
+  if (!GAME.transport.canRide(infUnit.class, infUnit)) return 0;
   const cap = transportSlotsFor(transportUnit);
   if (!cap) return 0;
   return Math.ceil(transportSlotsNeeded(infUnit, unitType) / cap);
 }
 function availableTransports() {
-  return allUnits().filter(u => GAME.transport.canCarry(u.class) && transportSlotsFor(u) > 0);
+  return allUnits().filter(u => GAME.transport.canCarry(u.class, u) && transportSlotsFor(u) > 0);
 }
 // ── Transport picker (per-deployment) ─────────────────────
 // TF slot:  openTransportPickerTF(tfId, slotId)
@@ -7427,7 +7448,8 @@ function _openTransportPicker(unit, current, faction) {
   const single = (_tpUnitType||"unit") !== "unit";
   const stands = single ? 1 : calcPoints(unit).unitSize;
   const need = transportSlotsNeeded(unit, _tpUnitType);
-  const noun = unit.class==="fg" ? "gun" : "infantry";
+  const tn = transportNouns();
+  const noun = (tn.riderByClass||{})[unit.class] || tn.rider;
   const singleNote = single && unit.class==="fg"
     ? " (a single stand mechanizes with one slot)" : "";
   intro.innerHTML = `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - ${stands} ${noun} ${Tn(stands,"stand")} needing <strong>${need}</strong> transport slot${need!==1?"s":""}${singleNote}. Pick a transport AFV; the minimum number needed is added automatically.`;
@@ -8167,10 +8189,11 @@ function renderArmyDetail() {
             const stepBtn = (lbl, d, dis) => `<button onclick="changeFPEntryQty('${army.id}','${bg.id}','${e.id}',${d})" ${dis?"disabled":""} style="width:20px;height:20px;border-radius:50%;border:none;background:var(--surface-raised);color:var(--text-bright);font-size:13px;line-height:20px;text-align:center;cursor:${dis?"default":"pointer"};opacity:${dis?".3":"1"}">${lbl}</button>`;
             const stepper = `<span style="display:inline-flex;align-items:center;gap:4px">${stepBtn("&minus;",-1,eqty<=1)}<span style="font-weight:bold;font-size:12px;min-width:18px;text-align:center">&times;${eqty}</span>${stepBtn("+",1,false)}</span>`;
             const offFacStrip = offFac ? `<div style="padding:4px 8px;border-radius:4px;background:#1a0505;border:1px solid #ef535066;font-size:10px;color:#ef9a9a;margin-bottom:4px"><i class="fa-solid fa-triangle-exclamation" style="color:#ef5350;margin-right:3px"></i>Faction doesn't match the army restriction.</div>` : "";
-            const canMechFP = (u.class==="inf"||u.class==="fg");
+            const fpTN = transportNouns();
+            const canMechFP = !!GAME.transport.canRide(u.class, u);
             const fpTU = e.transport ? unitById(e.transport) : null;
             const fpMechBtn = canMechFP
-              ? `<button class="trait-edit-btn" onclick="openTransportPickerFP('${army.id}','${bg.id}','${e.id}')" title="Mechanized transport"${fpTU?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid fa-truck"></i> ${fpTU?`${mechanizedCount(u,fpTU,e.unitType)}&times; ${esc(fpTU.name)}`:"Mechanize"}</button>`
+              ? `<button class="trait-edit-btn" onclick="openTransportPickerFP('${army.id}','${bg.id}','${e.id}')" title="${esc(fpTN.paired)} transport"${fpTU?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(fpTN.icon)}"></i> ${fpTU?`${mechanizedCount(u,fpTU,e.unitType)}&times; ${esc(fpTU.name)}`:esc(fpTN.action)}</button>`
               : "";
             const actions = `${offFacStrip}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
               <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${stepper}<span style="font-size:10px;color:var(--text-muted)">${pts} pts</span>${fpMechBtn}</span>
@@ -9214,7 +9237,7 @@ function openEditArmyModal(id) {
 
 function _refreshArmyFactionSelect() {
   const sel = document.getElementById("army-faction");
-  const builtIn = [["","No Faction"],["standard","Standard"],["precursor","Precursor"],["soulless","Soulless"],["swarm","Swarm"],["warrior","Warrior"]];
+  const builtIn = [["","No Faction"], ...Object.entries((GAME.factions && GAME.factions.labels) || {})];
   const custom = (state.customFactions||[]).map(cf=>[cf.id, cf.name]);
   const cur = sel.value;
   sel.innerHTML = [...builtIn,...custom,["any","Any Faction"]].map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join("");

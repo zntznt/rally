@@ -240,6 +240,84 @@ const URL = process.env.APP_URL || 'http://localhost:3001/index.html';
     return { pass: adopted, msg: `key=${storageKey()} adoptedLegacyData=${adopted}` };
   });
 
+  // 13. Builder edit-save must preserve fields the form doesn't own (a
+  //     fixed-points pack's `pts`, imported extras): gatherBuilderUnit()
+  //     rebuilds from schema inputs only, so the save path must merge into the
+  //     existing unit, not replace it wholesale.
+  await check('builder: edit-save preserves unknown unit fields', () => {
+    localStorage.clear();
+    state.customUnits = [];
+    const cls = Object.keys(CLASS_INFO)[0];
+    state.customUnits.push({ id: 'cu_keep', name: 'Keeper', class: cls, faction: '',
+      customSize: 3, standTraits: [], weapons: [], pts: 7, extraField: 'survive-me' });
+    saveState();
+    editUnit('cu_keep');
+    saveToLibrary();
+    const u = state.customUnits.find(x => x.id === 'cu_keep');
+    return { pass: !!u && u.pts === 7 && u.extraField === 'survive-me' && u.name === 'Keeper',
+      msg: u ? `pts=${u.pts} extraField=${u.extraField}` : 'unit vanished' };
+  });
+
+  // 14. classes[].minSize must beat the legacy sh/beh literal: a class
+  //     declaring minSize 1 accepts single-model units in the builder, and an
+  //     undeclared class keeps the legacy clamp.
+  await check('builder: classes[].minSize honored over sh/beh literal', () => {
+    localStorage.clear();
+    const cls = Object.keys(CLASS_INFO)[0];
+    document.getElementById('b-class').value = cls;
+    const sizeEl = document.getElementById('b-unit-size');
+    const orig = CLASS_INFO[cls].minSize;
+    try {
+      CLASS_INFO[cls].minSize = 1;
+      sizeEl.value = 1;
+      const withMin = gatherBuilderUnit().customSize;
+      delete CLASS_INFO[cls].minSize;
+      sizeEl.value = 1;
+      const legacy = gatherBuilderUnit().customSize;
+      const legacyExpected = (cls === 'sh' || cls === 'beh') ? 1 : 2;
+      return { pass: withMin === 1 && legacy === legacyExpected,
+        msg: `minSize1->${withMin} legacy->${legacy} (expected 1/${legacyExpected})` };
+    } finally {
+      if (orig === undefined) delete CLASS_INFO[cls].minSize; else CLASS_INFO[cls].minSize = orig;
+    }
+  });
+
+  // 15. The Mechanize button must follow GAME.transport.canRide, not
+  //     class-name literals: with canRide stubbed false, no slot row offers it.
+  await check('transport: mechanize button gated by canRide', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const rider = allUnits().find(u => GAME.transport.canRide(u.class, u));
+    if (!rider) return { pass: true, msg: 'pack has no ridable class - vacuously true' };
+    state.taskForces.push({ id: 'tf_mech', name: 'MechTest', tfType: 'infantry',
+      commander: 'C', faction: '', notes: '', pointsLimit: 0,
+      units: [{ id: 'slot_m1', unitId: rider.id, unitType: 'unit', quantity: 1, role: 'core' }] });
+    saveState();
+    const panelHas = () => document.getElementById('tf-detail-panel').innerHTML
+      .includes(`openTransportPickerTF('tf_mech','slot_m1')`);
+    selectTF('tf_mech');
+    const before = panelHas();
+    const realCanRide = GAME.transport.canRide;
+    GAME.transport.canRide = () => false;
+    renderTFDetail();
+    const after = panelHas();
+    GAME.transport.canRide = realCanRide;
+    renderTFDetail();
+    return { pass: before === true && after === false,
+      msg: `canRide=true shows btn:${before}, canRide=false shows btn:${after}` };
+  });
+
+  // 16. The Army modal faction list must come from GAME.factions.labels, not a
+  //     hardcoded LaserStorm array.
+  await check('factions: army select built from GAME.factions.labels', () => {
+    _refreshArmyFactionSelect();
+    const opts = [...document.querySelectorAll('#army-faction option')].map(o => o.value);
+    const expected = ['', ...Object.keys((GAME.factions && GAME.factions.labels) || {}),
+      ...(state.customFactions || []).map(cf => cf.id), 'any'];
+    const match = JSON.stringify(opts) === JSON.stringify(expected);
+    return { pass: match, msg: match ? `${opts.length} options` : `got [${opts.join(',')}] want [${expected.join(',')}]` };
+  });
+
   await browser.close();
 
   // Report
