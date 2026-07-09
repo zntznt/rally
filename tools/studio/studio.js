@@ -833,6 +833,121 @@ function sectionOf(el) {
   return sec ? sec.dataset.sec : null;
 }
 
+/* ================= generation + preview ================= */
+
+let _sources = null;      // {engine, shell} cache
+let _lastBlobUrl = null;
+
+async function fetchSources() {
+  if (_sources) return _sources;
+  try {
+    const [engine, shell] = await Promise.all([
+      fetch("../../engine/app.js").then(r => { if (!r.ok) throw new Error("engine " + r.status); return r.text(); }),
+      fetch("../../src/shell.html").then(r => { if (!r.ok) throw new Error("shell " + r.status); return r.text(); }),
+    ]);
+    _sources = { engine, shell };
+    return _sources;
+  } catch (e) {
+    document.getElementById("serve-warning").style.display = "block";
+    throw e;
+  }
+}
+
+function tryGenerate() {
+  try { return { pack: generatePack(project) }; }
+  catch (e) { return { errors: e.errors || [e.message] }; }
+}
+
+function showPreviewPanel() { document.getElementById("preview-wrap").style.display = "flex"; }
+function setPreviewStatus(html, errsText) {
+  showPreviewPanel();
+  document.getElementById("preview-status").innerHTML = html;
+  document.getElementById("preview-errors").textContent = errsText || "";
+}
+
+// The preview copy is instrumented (error listener + boot beacon); download
+// copies are byte-pristine. Splices use indexOf+slice - the same reason
+// buildHtml uses a function replacer: $&-like sequences in the app source.
+function instrumentHtml(html) {
+  const probe = `<script>
+window.addEventListener("error", function (e) {
+  parent.postMessage({ studio: "err", msg: String(e.message||e), line: e.lineno||0, src: String(e.filename||"") }, "*");
+});
+window.addEventListener("unhandledrejection", function (e) {
+  parent.postMessage({ studio: "err", msg: "unhandled rejection: " + String(e.reason) }, "*");
+});
+<\/script>`;
+  const beacon = `<script>
+// typeof guard: the pack's top-level "const GAME" is scoped to the script,
+// not mirrored onto window, so window.GAME would read undefined.
+parent.postMessage({ studio: "boot",
+  title: document.title,
+  name: (typeof GAME !== "undefined" && GAME.meta && GAME.meta.name) || "" }, "*");
+<\/script>`;
+  const headAt = html.indexOf("<head>");
+  if (headAt < 0) throw new Error("<head> not found in shell");
+  let out = html.slice(0, headAt + 6) + probe + html.slice(headAt + 6);
+  const bodyEnd = out.lastIndexOf("</body>");
+  if (bodyEnd < 0) throw new Error("</body> not found in shell");
+  out = out.slice(0, bodyEnd) + beacon + out.slice(bodyEnd);
+  return out;
+}
+
+let _previewErrors = [];
+async function generateAndPreview() {
+  const g = tryGenerate();
+  if (g.errors) {
+    setPreviewStatus(`<span style="color:#ef5350;font-weight:bold">Validation failed (${g.errors.length})</span>`,
+      g.errors.map(e => "- " + e).join("\n"));
+    document.getElementById("preview-frame").style.display = "none";
+    return;
+  }
+  let sources;
+  try { sources = await fetchSources(); }
+  catch (e) { setPreviewStatus(`<span style="color:#ef5350">Cannot fetch engine/shell: ${h(e.message)}</span>`); return; }
+  let html;
+  try { html = instrumentHtml(buildHtml(g.pack, sources.engine, sources.shell, project.meta.id)); }
+  catch (e) { setPreviewStatus(`<span style="color:#ef5350">Build failed: ${h(e.message)}</span>`); return; }
+
+  _previewErrors = [];
+  setPreviewStatus(`<span style="color:var(--text-muted)">Booting...</span>`);
+  if (_lastBlobUrl) URL.revokeObjectURL(_lastBlobUrl);
+  _lastBlobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  const frame = document.getElementById("preview-frame");
+  frame.style.display = "block";
+  frame.src = _lastBlobUrl;
+  document.getElementById("btn-reset-preview").style.display = "inline-block";
+  document.getElementById("btn-close-preview").style.display = "inline-block";
+}
+
+function onPreviewMessage(ev) {
+  const d = ev.data;
+  if (!d || !d.studio) return;
+  if (d.studio === "err") {
+    _previewErrors.push(`${d.msg}${d.line ? ` (line ${d.line})` : ""}`);
+    setPreviewStatus(`<span style="color:#ef5350;font-weight:bold">Pack errored (${_previewErrors.length})</span>`,
+      _previewErrors.map(e => "! " + e).join("\n"));
+  } else if (d.studio === "boot" && !_previewErrors.length) {
+    setPreviewStatus(`<span style="color:#66bb6a;font-weight:bold">Pack booted:</span> ${h(d.title)} <span style="color:var(--text-muted)">(GAME.meta.name = ${h(d.name)})</span>`);
+  }
+}
+
+async function downloadPack() {
+  const g = tryGenerate();
+  if (g.errors) { generateAndPreview(); return; }
+  downloadBlob((project.meta.id || "pack") + ".js", g.pack, "text/javascript");
+}
+async function downloadHtml() {
+  const g = tryGenerate();
+  if (g.errors) { generateAndPreview(); return; }
+  let sources;
+  try { sources = await fetchSources(); }
+  catch (e) { setPreviewStatus(`<span style="color:#ef5350">Cannot fetch engine/shell: ${h(e.message)}</span>`); return; }
+  try {
+    downloadBlob("index.html", buildHtml(g.pack, sources.engine, sources.shell, project.meta.id), "text/html");
+  } catch (e) { setPreviewStatus(`<span style="color:#ef5350">Build failed: ${h(e.message)}</span>`); }
+}
+
 /* ================= wiring ================= */
 
 function boot() {
@@ -898,6 +1013,27 @@ function boot() {
     if (ev.target.files && ev.target.files[0]) importProjectFile(ev.target.files[0]);
     ev.target.value = "";
   });
+
+  document.getElementById("btn-generate").addEventListener("click", generateAndPreview);
+  document.getElementById("btn-dl-pack").addEventListener("click", downloadPack);
+  document.getElementById("btn-dl-html").addEventListener("click", downloadHtml);
+  document.getElementById("btn-reset-preview").addEventListener("click", () => {
+    // The blob: iframe shares this origin, so the previewed pack's saves live
+    // in OUR localStorage under its storageKey.
+    if (project.meta.storageKey) {
+      localStorage.removeItem(project.meta.storageKey);
+      localStorage.removeItem(project.meta.storageKey + "_corrupt");
+    }
+    const frame = document.getElementById("preview-frame");
+    if (frame.src) frame.src = frame.src; // reload
+  });
+  document.getElementById("btn-close-preview").addEventListener("click", () => {
+    const frame = document.getElementById("preview-frame");
+    frame.src = "about:blank";
+    document.getElementById("preview-wrap").style.display = "none";
+    if (_lastBlobUrl) { URL.revokeObjectURL(_lastBlobUrl); _lastBlobUrl = null; }
+  });
+  window.addEventListener("message", onPreviewMessage);
 }
 
 document.addEventListener("DOMContentLoaded", boot);
