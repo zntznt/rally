@@ -11,7 +11,8 @@
     "studio": "python3 -m http.server 3001",
     "golden": "APP_URL=http://localhost:3001/index.html node tools/golden_master.cjs /tmp/rally_golden.json",
     "render": "APP_URL=http://localhost:3001/index.html node tools/render_master.cjs /tmp/rally_render.json",
-    "functional": "APP_URL=http://localhost:3001/index.html node tools/functional.cjs"
+    "functional": "APP_URL=http://localhost:3001/index.html node tools/functional.cjs",
+    "studio:test": "STUDIO_URL=http://localhost:3001/tools/studio/ node tools/studio_functional.cjs"
   },
   "devDependencies": {
     "playwright": "^1.40.0"
