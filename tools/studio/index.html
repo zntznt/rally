@@ -65,6 +65,18 @@ footer .status.saved{color:#66bb6a}
   <span class="sub">define a game, generate its pack and its app - nothing here ships in dist/</span>
 </header>
 <div id="serve-warning">Sources could not be fetched. Serve the repo root with <b>npm run studio</b> and open <b>http://localhost:3001/tools/studio/</b> (opening this file directly via file:// cannot work).</div>
+<div class="layout" id="preview-wrap" style="display:none;max-width:1280px;margin:0 auto;padding:16px 16px 0">
+  <section class="card" style="flex:1;min-width:0">
+    <h2 style="font-size:15px;text-transform:uppercase;letter-spacing:2px;color:var(--accent-light)">Preview</h2>
+    <div id="preview-status" style="font-size:12px;margin:8px 0"></div>
+    <div id="preview-errors" style="font-size:12px;color:#ef9a9a;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace"></div>
+    <iframe id="preview-frame" style="width:100%;height:560px;border:1px solid var(--border-default);border-radius:8px;background:#0d1117;display:none"></iframe>
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <button class="btn" id="btn-reset-preview" style="display:none">Reset preview state</button>
+      <button class="btn" id="btn-close-preview" style="display:none">Close preview</button>
+    </div>
+  </section>
+</div>
 <div class="layout">
   <nav id="side-nav"></nav>
   <main id="form-col"></main>
@@ -75,10 +87,11 @@ footer .status.saved{color:#66bb6a}
   <button class="btn" id="btn-export">Export project</button>
   <button class="btn" id="btn-import">Import project</button>
   <input type="file" id="import-file" accept="application/json,.json" style="display:none">
-  <button class="btn btn-primary" id="btn-generate" disabled title="Codegen lands in the next PR">Generate &amp; Preview</button>
-  <button class="btn" id="btn-dl-pack" disabled title="Codegen lands in the next PR">Download pack .js</button>
-  <button class="btn" id="btn-dl-html" disabled title="Codegen lands in the next PR">Download index.html</button>
+  <button class="btn btn-primary" id="btn-generate">Generate &amp; Preview</button>
+  <button class="btn" id="btn-dl-pack">Download pack .js</button>
+  <button class="btn" id="btn-dl-html">Download index.html</button>
 </footer>
+<script src="generate.js"></script>
 <script src="studio.js"></script>
 </body>
 </html>
