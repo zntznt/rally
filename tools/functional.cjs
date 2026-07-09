@@ -309,6 +309,82 @@ const URL = process.env.APP_URL || 'http://localhost:3001/index.html';
 
   // 16. The Army modal faction list must come from GAME.factions.labels, not a
   //     hardcoded LaserStorm array.
+  // 17. Instance mods: cost varies per slot mods (memo keys must separate),
+  //     packs without instance fields are untouched, and modded entries never
+  //     merge on re-add.
+  await check('instance: mods reprice per slot and never merge', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const u = allUnits()[0];
+    // Pack-declares-instance-fields simulation: skill field + ctx-aware cost.
+    GAME.schema.instance = [{ key: 'skill', label: 'Skill', kind: 'number', badgeWhenNot: 4 }];
+    const realCost = GAME.cost.unitCost;
+    try {
+      GAME.cost.unitCost = function (unit, ctx) {
+        const r = realCost(unit);
+        if (!ctx || !ctx.mods || ctx.mods.skill == null) return r;
+        const d = (4 - ctx.mods.skill) * 2;
+        return Object.assign({}, r, { unitPts: r.unitPts + d, indPts: r.indPts + d });
+      };
+      saveState(); // nukes the cost memo
+      const stock = { id: 'slot_i1', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core' };
+      const modded = { id: 'slot_i2', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core', mods: { skill: 2 } };
+      const a = slotPointValue(stock), b = slotPointValue(modded);
+      const priced = b === a + 4;
+      // second read of each must hit the cache and stay separated
+      const priced2 = slotPointValue(stock) === a && slotPointValue(modded) === b;
+      // no-merge guard: adding the same unit to a BG never merges into a modded entry
+      state.armies.push({ id: 'army_i', name: 'A', bgCount: 1, armyType: 'fp', taskForceIds: [],
+        battleGroups: [{ id: 'bg_i', name: 'BG', symbol: 'skull', entries: [
+          { id: 'fpe_i1', unitId: u.id, unitType: 'unit', qty: 1, mods: { skill: 2 } }] }] });
+      currentArmyId = 'army_i';
+      libQuickAddUnit(u.id, 'bg_i', 'unit', null);
+      const entries = state.armies[0].battleGroups[0].entries;
+      const noMerge = entries.length === 2 && entries[0].qty === 1 && !entries[1].mods;
+      return { pass: priced && priced2 && noMerge,
+        msg: `stock=${a} modded=${b} cacheStable=${priced2} entriesAfterAdd=${entries.length}` };
+    } finally {
+      GAME.cost.unitCost = realCost;
+      delete GAME.schema.instance;
+      currentArmyId = null;
+      localStorage.clear();
+    }
+  });
+
+  // 18. Instance mods are user data: text values must render esc()'d in the
+  //     slot row (same rule as the crafted-import XSS cases).
+  await check('instance: mods text is escaped in slot rows', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const u = allUnits()[0];
+    GAME.schema.instance = [{ key: 'pilot', label: 'Pilot', kind: 'text', uniqueInstance: true }];
+    try {
+      state.taskForces.push({ id: 'tf_x', name: 'XSS', tfType: 'infantry', commander: 'C',
+        faction: '', notes: '', pointsLimit: 0,
+        units: [{ id: 'slot_x1', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core',
+          mods: { pilot: '<img src=x onerror="window.__pwned=1">' } }] });
+      saveState();
+      selectTF('tf_x');
+      const panel = document.getElementById('tf-detail-panel');
+      const injected = !!panel.querySelector('img[src="x"]') || !!window.__pwned;
+      const shown = panel.innerHTML.includes('&lt;img');
+      return { pass: !injected && shown, msg: `injected=${injected} escapedVisible=${shown}` };
+    } finally { delete GAME.schema.instance; localStorage.clear(); }
+  });
+
+  // 19. Migration normalizes garbage mods from crafted saves/imports.
+  await check('instance: _migrateState drops non-object mods', () => {
+    localStorage.clear();
+    state.taskForces = [{ id: 'tf_m', name: 'M', tfType: 'infantry', commander: 'C',
+      faction: '', notes: '', pointsLimit: 0,
+      units: [{ id: 'slot_m', unitId: 'u', unitType: 'unit', quantity: 1, role: 'core', mods: 'garbage' },
+              { id: 'slot_m2', unitId: 'u', unitType: 'unit', quantity: 1, role: 'core', mods: { ok: 1 } }] }];
+    _migrateState();
+    const s = state.taskForces[0].units;
+    return { pass: s[0].mods === undefined && typeof s[1].mods === 'object',
+      msg: `garbage=${JSON.stringify(s[0].mods)} kept=${JSON.stringify(s[1].mods)}` };
+  });
+
   await check('factions: army select built from GAME.factions.labels', () => {
     _refreshArmyFactionSelect();
     const opts = [...document.querySelectorAll('#army-faction option')].map(o => o.value);

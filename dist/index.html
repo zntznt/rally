@@ -2333,6 +2333,15 @@ function loadState() {
 function _migrateState() {
   // Migration: convert legacy faction string → reqs array
   (state.customTraits||[]).forEach(t => { if(!t.reqs) t.reqs = t.faction ? [{type:"faction",vals:[t.faction]}] : []; });
+  // Normalize instance mods: must be a plain object (crafted imports could
+  // carry anything). Values are rendered esc()'d, but the shape is enforced
+  // here so downstream code can trust typeof checks.
+  const normMods = s => {
+    if (s.mods === undefined) return;
+    if (!s.mods || typeof s.mods !== "object" || Array.isArray(s.mods)) delete s.mods;
+  };
+  (state.taskForces||[]).forEach(tf => (tf.units||[]).forEach(normMods));
+  (state.armies||[]).forEach(a => (a.battleGroups||[]).forEach(bg => (bg.entries||[]).forEach(normMods)));
   // Migrate old terror/transport traits on custom units
   (state.customUnits||[]).forEach(migrateCustomUnit);
   // Migration: ensure every slot has a stable, globally unique id (older data
@@ -2517,14 +2526,35 @@ function computeAllowedRoles(unit) {
 
 // Game-agnostic shell: memoizes the game pack's cost function per unit id.
 // The cache is invalidated by saveState/loadState/undoState.
-function calcPoints(unit) {
-  if (unit.id) {
+//
+// Per-instance mods: a fielded slot/entry may carry a `mods` object (pack
+// vocabulary declared in GAME.schema.instance). Only non-costInert fields
+// participate in cost - they extend the memo key and ride to the pack as
+// unitCost(unit, {mods}). Packs without instance fields never see a ctx and
+// every key degenerates to unit.id, exactly the pre-mods behavior.
+function _instanceCostMods(mods) {
+  const fields = (GAME.schema && GAME.schema.instance) || [];
+  if (!mods || !fields.length) return null;
+  const out = {};
+  for (const f of fields) {
+    if (f.costInert) continue;
+    if (mods[f.key] !== undefined) out[f.key] = mods[f.key];
+  }
+  return Object.keys(out).length ? out : null;
+}
+function _stableModsKey(m) {
+  return JSON.stringify(m, Object.keys(m).sort());
+}
+function calcPoints(unit, mods) {
+  const m = _instanceCostMods(mods);
+  const key = unit.id ? (m ? unit.id + "§" + _stableModsKey(m) : unit.id) : null;
+  if (key) {
     if (!_calcPtsCache) _calcPtsCache = new Map();
-    const hit = _calcPtsCache.get(unit.id);
+    const hit = _calcPtsCache.get(key);
     if (hit) return hit;
   }
-  const r = GAME.cost.unitCost(unit);
-  if (unit.id) _calcPtsCache.set(unit.id, r);
+  const r = m ? GAME.cost.unitCost(unit, { mods: m }) : GAME.cost.unitCost(unit);
+  if (key) _calcPtsCache.set(key, r);
   return r;
 }
 
@@ -5356,7 +5386,9 @@ function libQuickAddUnit(unitId, bgId, unitType, btnEl) {
   const bg = army && (army.battleGroups||[]).find(b=>b.id===bgId);
   if(!army || !bg) return;
   bg.entries = bg.entries || [];
-  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === unitType);
+  // Never merge into an instance-modded entry (same rule as transport below:
+  // the new copy carries no mods and must not adopt the existing one's).
+  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === unitType && !e.mods);
   if(existing) {
     existing.qty = (existing.qty||1) + 1;
   } else {
@@ -5790,7 +5822,7 @@ function availableTypesFor(cls, role) {
 function slotPointValue(slot) {
   const u = unitById(slot.unitId);
   if(!u) return 0;
-  const pts = calcPoints(u);
+  const pts = calcPoints(u, slot.mods);
   const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[slot.unitType||"unit"];
   let basePts = (pts[typeKey] != null ? pts[typeKey] : pts.unitPts) || 0;
   if (slot.transport) {
@@ -5885,6 +5917,8 @@ function canAddToSection(tf, role, unitCls) {
 function maxQtyForSlot(tf, slot) {
   const u = unitById(slot.unitId);
   if(!u) return slot.quantity;
+  // A set uniqueInstance field (named pilot etc.) pins the stack at 1.
+  if (slotHasUniqueInstance(u, slot.mods)) return 1;
   const lim = tfSectionLimits(tf);
   const role = slot.role;
   if(role === "core") {
@@ -6199,6 +6233,7 @@ function renderTFDetail() {
           const mechBtn = canMech
             ? `<button class="trait-edit-btn" onclick="openTransportPickerTF('${tf.id}','${slot.id}')" title="${esc(tn_.paired)} transport"${tu?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(tn_.icon)}"></i> ${tu?`${mechanizedCount(u,tu,slot.unitType)}&times; ${esc(tu.name)}`:esc(tn_.action)}</button>`
             : "";
+          const instBtn = instanceBtnHTML(u, slot.mods, `openInstanceEditorTF('${tf.id}','${slot.id}')`);
           const slotActions = `<div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <div class="qty-ctrl">
@@ -6207,7 +6242,7 @@ function renderTFDetail() {
                 <button class="qty-btn" onclick="changeTFSlotQty('${tf.id}','${slot.id}',1)">+</button>
               </div>
               <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1a2030;color:#7eb3ff;border:1px solid #2a3a5a">${esc(typeLabel_)}</span>
-              ${mechBtn}
+              ${mechBtn}${instBtn}
             </div>
             <button class="trait-edit-btn" onclick="confirmBtn(this,()=>removeTFSlot('${tf.id}','${slot.id}'))">Remove</button>
           </div>`;
@@ -6582,7 +6617,8 @@ function confirmAddUnit() {
   const unitType = types.includes(addUnitSelectedType) ? addUnitSelectedType : (types[0] || "unit");
   const remaining = sectionRemainingQty(tf, addUnitTargetRole, u.class);
   const addQty = Math.max(1, Math.min(addUnitQty, isFinite(remaining) ? remaining : addUnitQty));
-  const existing = (tf.units||[]).find(s => s.unitId === addUnitSelectedId && s.role === addUnitTargetRole && s.unitType === unitType);
+  // Never merge into an instance-modded slot - the added copies are stock.
+  const existing = (tf.units||[]).find(s => s.unitId === addUnitSelectedId && s.role === addUnitTargetRole && s.unitType === unitType && !s.mods);
   if(existing) {
     existing.quantity = (existing.quantity || 1) + addQty;
   } else {
@@ -7365,7 +7401,7 @@ function entryPointValue(e) {
     if(!slot) return 0;
     const u = unitById(slot.unitId);
     if(!u) return 0;
-    const pts = calcPoints(u);
+    const pts = calcPoints(u, slot.mods);  // BG entries inherit the slot's instance mods
     const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[slot.unitType||"unit"];
     let basePts = (pts[typeKey]!=null?pts[typeKey]:pts.unitPts)||0;
     if (slot.transport) {
@@ -7377,7 +7413,7 @@ function entryPointValue(e) {
   } else {
     const u = unitById(e.unitId);
     if(!u) return 0;
-    const pts = calcPoints(u);
+    const pts = calcPoints(u, e.mods);
     const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[e.unitType||"unit"];
     let basePts = (pts[typeKey]!=null?pts[typeKey]:pts.unitPts)||0;
     if (e.transport) {
@@ -7526,6 +7562,167 @@ function clearTransport() {
 function _refreshAfterTransport() {
   if(_tpKind==="tf"){ renderTFList(); if(currentTFId===_tpTFId) renderTFDetail(); }
   if(_tpKind==="fp"){ renderArmyList(); renderArmyDetail(); }
+}
+
+// ── Per-instance mods (GAME.schema.instance) ──────────────
+// Pack-declared fields a FIELDED slot/free-pick entry carries individually
+// (pilot skill, ammo, campaign state) - a generalization of the transport
+// pattern: slot-owned, cost-aware via calcPoints(unit, mods), no-merge
+// guarded, riding whole-object copies through save/export. Everything here
+// is inert unless the pack declares GAME.schema.instance.
+//
+// Semantics: mods are UNIFORM across a slot's quantity stack (qty 4 with
+// Skill 3 = four Skill-3 units; distinct pilots = distinct slots), and a set
+// field whose descriptor is uniqueInstance clamps the stack to 1.
+function instanceFieldsFor(unit) {
+  const fields = (GAME.schema && GAME.schema.instance) || [];
+  return fields.filter(f => {
+    if (typeof f.appliesTo === "function") return f.appliesTo(unit);
+    if (f.appliesTo && Array.isArray(f.appliesTo.classes) && f.appliesTo.classes.length)
+      return f.appliesTo.classes.includes(unit.class);
+    return true;
+  });
+}
+function instanceBadges(unit, mods) {
+  if (!mods) return [];
+  const out = [];
+  for (const f of instanceFieldsFor(unit)) {
+    const v = mods[f.key];
+    if (v === undefined || v === "") continue;
+    if (typeof f.badge === "function") { const b = f.badge(v, unit); if (b) out.push(String(b)); continue; }
+    if (f.badgeWhenNot !== undefined && v === f.badgeWhenNot) continue;
+    out.push(`${f.label} ${v}`);
+  }
+  return out;
+}
+function slotHasUniqueInstance(unit, mods) {
+  if (!mods) return false;
+  return instanceFieldsFor(unit).some(f => f.uniqueInstance && mods[f.key] !== undefined && mods[f.key] !== "");
+}
+// The slot-row button, mech-button styled: shows the badges when set.
+function instanceBtnHTML(unit, mods, onclickStr) {
+  if (!instanceFieldsFor(unit).length) return "";
+  const badges = instanceBadges(unit, mods);
+  const label = badges.length ? badges.map(esc).join(", ") : "Instance";
+  return `<button class="trait-edit-btn" onclick="${onclickStr}" title="Instance details"${mods?` style="border-color:#7eb3ff55;color:#7eb3ff;background:#0e141f"`:""}><i class="fa-solid fa-user-gear"></i> ${label}</button>`;
+}
+
+let _instKind = null, _instTFId = null, _instSlotId = null,
+    _instArmyId = null, _instBgId = null, _instEntryId = null,
+    _instUnit = null, _instDraft = null;
+
+function _ensureInstanceModal() {
+  if (document.getElementById("modal-instance")) return;
+  const div = document.createElement("div");
+  div.id = "modal-instance";
+  div.className = "modal-bg";
+  div.innerHTML = `<div class="modal" style="max-width:420px">
+    <div class="modal-header"><span>Instance Details</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-instance')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div id="instance-intro" style="font-size:12px;color:#8b949e;line-height:1.5;margin-bottom:12px"></div>
+    <div id="instance-fields"></div>
+    <div id="instance-price" style="font-size:12px;color:#e0e0e0;margin-top:10px"></div>
+    <div style="margin-top:12px;display:flex;justify-content:space-between;gap:8px">
+      <button class="btn btn-secondary" onclick="clearInstanceMods()">Clear (stock unit)</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-secondary" onclick="closeModal('modal-instance')">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmInstanceMods()">Apply</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function openInstanceEditorTF(tfId, slotId) {
+  const tf = state.taskForces.find(t=>t.id===tfId);
+  const slot = tf && (tf.units||[]).find(s=>s.id===slotId);
+  const u = slot && unitById(slot.unitId);
+  if (!u) return;
+  _instKind = "tf"; _instTFId = tfId; _instSlotId = slotId;
+  _openInstanceEditor(u, slot.mods, slot.quantity || 1);
+}
+function openInstanceEditorFP(armyId, bgId, entryId) {
+  const army = state.armies.find(a=>a.id===armyId);
+  const bg = army && (army.battleGroups||[]).find(b=>b.id===bgId);
+  const e = bg && (bg.entries||[]).find(x=>x.id===entryId);
+  const u = e && unitById(e.unitId);
+  if (!u) return;
+  _instKind = "fp"; _instArmyId = armyId; _instBgId = bgId; _instEntryId = entryId;
+  _openInstanceEditor(u, e.mods, e.qty || 1);
+}
+function _openInstanceEditor(unit, mods, qty) {
+  _ensureInstanceModal();
+  _instUnit = unit;
+  _instDraft = Object.assign({}, mods || {});
+  document.getElementById("instance-intro").innerHTML =
+    `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - these details apply to the whole stack` +
+    (qty > 1 ? ` (all ${qty} copies)` : "") + `. Fields marked ° force quantity 1.`;
+  // Weapon-editor pattern (value-carrying inputs), NOT the builder's global
+  // b-* ids: many instances exist at once, so inputs must own their values.
+  document.getElementById("instance-fields").innerHTML = instanceFieldsFor(unit).map(f => {
+    const v = _instDraft[f.key];
+    const mark = f.uniqueInstance ? "°" : "";
+    let input;
+    if (f.kind === "select") {
+      const opts = (typeof f.options === "function" ? f.options() : f.options || []);
+      input = `<select oninput="_instFieldChanged('${esc(f.key)}', this.value, 'select')">` +
+        `<option value=""${v===undefined?" selected":""}>-</option>` +
+        opts.map(o => `<option value="${esc(String(o.v))}"${String(v)===String(o.v)?" selected":""}>${esc(o.l)}</option>`).join("") +
+        `</select>`;
+    } else if (f.kind === "text") {
+      input = `<input type="text" value="${esc(v ?? "")}"${f.maxLen?` maxlength="${+f.maxLen}"`:""} oninput="_instFieldChanged('${esc(f.key)}', this.value, 'text')">`;
+    } else {
+      input = `<input type="number" value="${esc(v ?? "")}"${f.min!=null?` min="${+f.min}"`:""}${f.max!=null?` max="${+f.max}"`:""} placeholder="${esc(f.value ?? "")}" oninput="_instFieldChanged('${esc(f.key)}', this.value, 'number')">`;
+    }
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <label style="flex:0 0 130px;font-size:11px;color:#8b949e;font-weight:bold">${esc(f.label)}${mark}</label>${input}</div>`;
+  }).join("");
+  _renderInstancePrice();
+  openModal("modal-instance");
+}
+function _instFieldChanged(key, val, kind) {
+  if (val === "" || val === undefined) delete _instDraft[key];
+  else _instDraft[key] = kind === "number" ? +val : val;
+  _renderInstancePrice();
+}
+function _renderInstancePrice() {
+  const el = document.getElementById("instance-price");
+  if (!el || !_instUnit) return;
+  // Live repricing, uncached on purpose (mirrors calculateBuilder): the pack
+  // sees exactly the ctx it would get from calcPoints.
+  const m = _instanceCostMods(_instDraft);
+  const r = m ? GAME.cost.unitCost(_instUnit, { mods: m }) : GAME.cost.unitCost(_instUnit);
+  const base = m ? GAME.cost.unitCost(_instUnit) : r;
+  const delta = (r.unitPts || 0) - (base.unitPts || 0);
+  el.innerHTML = `Unit cost: <strong>${r.unitPts} pts</strong>` +
+    (delta ? ` <span style="color:${delta>0?"#ef9a9a":"#66bb6a"}">(${delta>0?"+":""}${delta} vs stock)</span>` : "");
+}
+function _instTargetObjs() {
+  if (_instKind === "tf") {
+    const tf = state.taskForces.find(t=>t.id===_instTFId);
+    return { holder: tf && (tf.units||[]).find(s=>s.id===_instSlotId), qtyKey: "quantity" };
+  }
+  const army = state.armies.find(a=>a.id===_instArmyId);
+  const bg = army && (army.battleGroups||[]).find(b=>b.id===_instBgId);
+  return { holder: bg && (bg.entries||[]).find(x=>x.id===_instEntryId), qtyKey: "qty" };
+}
+function confirmInstanceMods() {
+  const { holder, qtyKey } = _instTargetObjs();
+  if (holder) {
+    if (Object.keys(_instDraft).length) holder.mods = _instDraft;
+    else delete holder.mods;
+    if (holder.mods && slotHasUniqueInstance(_instUnit, holder.mods) && (holder[qtyKey]||1) > 1) {
+      holder[qtyKey] = 1;
+      if (_instKind === "tf") clampArmyAssignments(holder.id, 1);
+    }
+    saveState();
+  }
+  closeModal("modal-instance");
+  if (_instKind === "tf") { renderTFList(); if(currentTFId===_instTFId) renderTFDetail(); if(currentArmyId) renderArmyDetail(); }
+  else { renderArmyList(); renderArmyDetail(); }
+}
+function clearInstanceMods() {
+  _instDraft = {};
+  confirmInstanceMods();
 }
 // When a TF slot's quantity drops, trim this slot's BG entries (later groups
 // first) so no army ever has more units placed than the slot now provides.
@@ -8195,8 +8392,9 @@ function renderArmyDetail() {
             const fpMechBtn = canMechFP
               ? `<button class="trait-edit-btn" onclick="openTransportPickerFP('${army.id}','${bg.id}','${e.id}')" title="${esc(fpTN.paired)} transport"${fpTU?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(fpTN.icon)}"></i> ${fpTU?`${mechanizedCount(u,fpTU,e.unitType)}&times; ${esc(fpTU.name)}`:esc(fpTN.action)}</button>`
               : "";
+            const fpInstBtn = instanceBtnHTML(u, e.mods, `openInstanceEditorFP('${army.id}','${bg.id}','${e.id}')`);
             const actions = `${offFacStrip}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-              <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${stepper}<span style="font-size:10px;color:var(--text-muted)">${pts} pts</span>${fpMechBtn}</span>
+              <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${stepper}<span style="font-size:10px;color:var(--text-muted)">${pts} pts</span>${fpMechBtn}${fpInstBtn}</span>
               <button class="trait-edit-btn" style="border-color:#8b000066;color:#ef5350;background:#2a0a0a" onclick="removeFPEntry('${army.id}','${bg.id}','${e.id}')">Remove</button>
             </div>`;
             if (fpTU) return mechPairCardHTML(u, fpTU, mechanizedCount(u, fpTU, e.unitType), actions, e.unitType||"unit");
@@ -8843,6 +9041,14 @@ function _buildArmyPrintContent(army, pal, gray) {
     const hdrBg   = gray ? "#e0e0e0" : (sd?.color ? sd.color + "0e" : "#edf2fb");
     const hdrBord = gray ? "#bbb"    : (sd?.color ? sd.color + "55" : "#c0cce8");
 
+    // Instance-mods line on print cards (gated: empty unless the pack
+    // declares instance fields and the slot carries mods).
+    const _pModsBadge = (u, mods) => {
+      const badges = instanceBadges(u, mods);
+      return badges.length
+        ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${gray?"#55555518":"#7eb3ff18"};color:${gray?"#555":"#4a7ab8"};border:1px solid ${gray?"#55555544":"#7eb3ff44"}">${badges.map(esc).join(" · ")}</span>`
+        : "";
+    };
     const withTransport = (carrier, viewType, tu, badgeHTML, role) => {
       const sup = role === "support" ? _pSupportAdjusted(carrier, viewType, tu) : null;
       if (!tu) return [{html: _pUnitCard(carrier, viewType, badgeHTML||"", sup != null ? {ptsVal: sup} : {}, pal, gray), full: false}];
@@ -8854,7 +9060,7 @@ function _buildArmyPrintContent(army, pal, gray) {
         if (!u) return [];
         const qty = e.qty || 1;
         const tu = e.transport ? unitById(e.transport) : null;
-        return Array.from({length:qty}).flatMap(() => withTransport(u, e.unitType||"unit", tu, ""));
+        return Array.from({length:qty}).flatMap(() => withTransport(u, e.unitType||"unit", tu, _pModsBadge(u, e.mods)));
       } else {
         const tf   = state.taskForces.find(t=>t.id===e.tfId);
         const slot = tf && (tf.units||[]).find(s=>s.id===e.slotId);
@@ -8867,7 +9073,8 @@ function _buildArmyPrintContent(army, pal, gray) {
           ? `<span style="display:inline-flex;align-items:center;gap:3px;flex-wrap:wrap"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${tfColor}18;color:${tfColor};border:1px solid ${tfColor}44">${esc(tf.name)}</span><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${pal.assetColor}18;color:${pal.assetColor};border:1px solid ${pal.assetColor}44"><i class="fa-solid fa-chess" style="font-size:7px;margin-right:2px"></i>${esc(asset.name)}</span></span>`
           : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${tfColor}18;color:${tfColor};border:1px solid ${tfColor}44">${esc(tf.name)}</span>`;
         const tu = slot.transport ? unitById(slot.transport) : null;
-        return Array.from({length:qty}).flatMap(() => withTransport(u, slot.unitType||"unit", tu, tfBadge, slot.role));
+        const modsBadge = _pModsBadge(u, slot.mods);
+        return Array.from({length:qty}).flatMap(() => withTransport(u, slot.unitType||"unit", tu, tfBadge + modsBadge, slot.role));
       }
     });
 
@@ -9132,9 +9339,9 @@ function addFPUnit(unitId, unitType) {
   bg.entries = bg.entries || [];
   const resolvedType = unitType || "unit";
   const addQty = Math.max(1, fpAddQty|0);
-  // Never merge into a mechanized entry - the new copies have no transport
-  // and would otherwise be silently charged for one.
-  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === resolvedType && !e.transport);
+  // Never merge into a mechanized or instance-modded entry - the new copies
+  // have no transport/mods and would otherwise silently adopt them.
+  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === resolvedType && !e.transport && !e.mods);
   if(existing) {
     existing.qty = (existing.qty || 1) + addQty;
   } else {
@@ -9160,6 +9367,8 @@ function changeFPEntryQty(armyId, bgId, entryId, delta) {
   if(!entry) return;
   const nq = (entry.qty||1) + delta;
   if(nq < 1) return;
+  const eu = unitById(entry.unitId);
+  if (nq > 1 && eu && slotHasUniqueInstance(eu, entry.mods)) return;
   entry.qty = nq;
   saveState();
   renderArmyDetail();
