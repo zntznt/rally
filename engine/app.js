@@ -6229,6 +6229,187 @@ function backToArmyList() {
   renderArmyList();
 }
 
+// ── Circumstance modifiers (GAME.modifiers) ───────────────
+// An army carries an ordered stack of pack-vocabulary circumstance layers:
+// army.modifiers = [{key, n?, note?}]. Scenario rules, campaign fatigue,
+// supply states. State/persistence/export ride the existing whole-object
+// paths for free; this block is the UI + the one computed effect
+// (limitDelta -> effectiveLimit). Other effect types are TRACKED and shown,
+// not applied - later phases compute them. Inert unless the pack declares
+// GAME.modifiers (or stale data carries a stack).
+function modifierDefs() { return GAME.modifiers || []; }
+function modifierDef(key) { return modifierDefs().find(m => m.key === key); }
+function armyModifiers(army) { return (army && army.modifiers) || []; }
+
+// The army's points limit after limitDelta modifiers. 0/unset = no limit,
+// which modifiers never invent.
+function effectiveLimit(army) {
+  const base = army.pointsLimit || 0;
+  if (!base) return base;
+  let delta = 0;
+  for (const am of armyModifiers(army)) {
+    const def = modifierDef(am.key);
+    if (!def) continue;
+    for (const ef of def.effects || [])
+      if (ef.type === "limitDelta") delta += (+ef.pointsLimit || 0) * (am.n || 1);
+  }
+  return Math.max(0, base + delta);
+}
+
+function _modWhereSuffix(ef) {
+  const w = ef.where || {};
+  const parts = [].concat(w.classes || [], w.factions || [], w.tags || []);
+  return parts.length ? ` (${parts.map(esc).join(", ")})` : "";
+}
+function _traitLabelFor(key) {
+  const t = (GAME.traits && GAME.traits.stand && GAME.traits.stand[key]) ||
+            (GAME.traits && GAME.traits.weapon && GAME.traits.weapon[key]);
+  return t ? t[0] : key;
+}
+function _modEffectSummary(ef) {
+  const tracked = ` <span style="color:#6e7681;font-size:10px">(tracked, not applied)</span>`;
+  switch (ef.type) {
+    case "ruleText":   return esc(ef.text || "");
+    case "traitGrant": return `Grants <strong>${esc(_traitLabelFor(ef.trait))}</strong>${_modWhereSuffix(ef)}${tracked}`;
+    case "traitRemove":return `Removes <strong>${esc(_traitLabelFor(ef.trait))}</strong>${_modWhereSuffix(ef)}${tracked}`;
+    case "statShift":  return `${esc(ef.stat || "?")} ${(+ef.delta||0) >= 0 ? "+" : ""}${+ef.delta||0}${_modWhereSuffix(ef)}${tracked}`;
+    case "costMult":   return `Cost ×${+ef.mult || 1}${_modWhereSuffix(ef)}${tracked}`;
+    case "costDelta":  return `Cost ${(+ef.delta||0) >= 0 ? "+" : ""}${+ef.delta||0} pts${_modWhereSuffix(ef)}${tracked}`;
+    case "availability": return `Availability restricted${_modWhereSuffix(ef)}${tracked}`;
+    case "orgDelta":   return `Org: ${esc(ef.chart || "?")}/${esc(ef.slot || "?")} max ${(+ef.maxDelta||0) >= 0 ? "+" : ""}${+ef.maxDelta||0}${tracked}`;
+    case "limitDelta": return `Points limit ${(+ef.pointsLimit||0) >= 0 ? "+" : ""}${+ef.pointsLimit||0}`;
+    default:           return esc(ef.type || "?") + tracked;
+  }
+}
+
+function _armyModifiersHTML(army) {
+  if (!modifierDefs().length && !armyModifiers(army).length) return "";
+  const rows = armyModifiers(army).map(am => {
+    const def = modifierDef(am.key);
+    if (!def) return `<div style="border:1px solid #7a400055;border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px;color:#d4a017">
+      Unknown modifier <strong>${esc(am.key)}</strong> (not in this pack's vocabulary)
+      <button class="trait-edit-btn" style="margin-left:8px" onclick="_armyRemoveModifier('${army.id}','${esc(am.key)}')">Remove</button></div>`;
+    const stepper = def.stackable
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px">
+          <button class="qty-btn" onclick="_armyStepModifier('${army.id}','${esc(am.key)}',-1)">−</button>
+          <span style="font-weight:bold;font-size:12px">&times;${am.n || 1}</span>
+          <button class="qty-btn" onclick="_armyStepModifier('${army.id}','${esc(am.key)}',1)">+</button>
+        </span>` : "";
+    const effects = (def.effects || []).map(ef =>
+      `<div style="font-size:11px;color:#8b949e;line-height:1.5;margin-top:2px">&bull; ${_modEffectSummary(ef)}</div>`).join("");
+    return `<div style="border:1px solid #2a3a5a;border-radius:8px;padding:8px 12px;margin-bottom:6px;background:#10141d">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong style="font-size:12px;color:#7eb3ff">${esc(def.label || def.key)}</strong>
+        ${def.group ? `<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:#1a2030;color:#7eb3ff;border:1px solid #2a3a5a">${esc(def.group)}</span>` : ""}
+        ${stepper}
+        <input type="text" value="${esc(am.note || "")}" placeholder="note..."
+          style="flex:1;min-width:90px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:4px;color:#8b949e;font-size:11px;padding:2px 7px;font-style:italic"
+          onchange="_armySetModNote('${army.id}','${esc(am.key)}',this.value)">
+        <button class="trait-edit-btn" style="border-color:#8b000066;color:#ef5350" onclick="_armyRemoveModifier('${army.id}','${esc(am.key)}')">Remove</button>
+      </div>${effects}</div>`;
+  }).join("");
+  const addBtn = modifierDefs().length
+    ? `<button class="trait-edit-btn" onclick="openModifierPicker('${army.id}')"><i class="fa-solid fa-layer-group"></i> Add Modifier</button>` : "";
+  return `<div style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#6e7681">Circumstances</span>${addBtn}
+    </div>${rows}</div>`;
+}
+
+let _modPickerArmyId = null;
+function _ensureModifierPicker() {
+  if (document.getElementById("modal-modifier-picker")) return;
+  const div = document.createElement("div");
+  div.id = "modal-modifier-picker";
+  div.className = "modal-bg";
+  div.innerHTML = `<div class="modal" style="max-width:480px">
+    <div class="modal-header"><span>Add Circumstance Modifier</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-modifier-picker')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="scrolllist" id="modifier-picker-list" style="max-height:380px"></div>
+  </div>`;
+  document.body.appendChild(div);
+}
+function openModifierPicker(armyId) {
+  _modPickerArmyId = armyId;
+  _ensureModifierPicker();
+  _renderModifierPickerList();
+  openModal("modal-modifier-picker");
+}
+function _renderModifierPickerList() {
+  const army = state.armies.find(a => a.id === _modPickerArmyId);
+  if (!army) return;
+  const active = armyModifiers(army);
+  const activeKeys = new Set(active.map(m => m.key));
+  const blocked = key => {
+    const def = modifierDef(key);
+    if ((def.excludes || []).some(x => activeKeys.has(x))) return true;
+    return active.some(am => {
+      const d = modifierDef(am.key);
+      return d && (d.excludes || []).includes(key);
+    });
+  };
+  const groups = new Map();
+  for (const def of modifierDefs()) {
+    if (!groups.has(def.group || "")) groups.set(def.group || "", []);
+    groups.get(def.group || "").push(def);
+  }
+  const list = document.getElementById("modifier-picker-list");
+  list.innerHTML = [...groups.entries()].map(([g, defs]) =>
+    (g ? `<div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#6e7681;margin:8px 0 4px">${esc(g)}</div>` : "") +
+    defs.map(def => {
+      const isActive = activeKeys.has(def.key);
+      const dis = blocked(def.key) || (isActive && !def.stackable);
+      const state_ = dis ? (isActive ? "active" : "conflicts with an active modifier")
+        : isActive ? `active &times;${(active.find(m=>m.key===def.key)||{}).n || 1} - add another` : "";
+      const effects = (def.effects || []).map(ef => `<div style="font-size:11px;color:#8b949e;line-height:1.4">&bull; ${_modEffectSummary(ef)}</div>`).join("");
+      return `<div class="list-row" style="${dis ? "opacity:.45;cursor:default" : ""}" ${dis ? "" : `onclick="_armyAddModifier('${_modPickerArmyId}','${esc(def.key)}')"`}>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:bold;color:#fff;margin-bottom:2px">${esc(def.label || def.key)}${state_ ? `<span style="font-size:10px;color:#6e7681;margin-left:6px">${state_}</span>` : ""}</div>
+          ${effects}
+        </div>
+      </div>`;
+    }).join("")
+  ).join("");
+}
+function _armyAddModifier(armyId, key) {
+  const army = state.armies.find(a => a.id === armyId);
+  const def = modifierDef(key);
+  if (!army || !def) return;
+  army.modifiers = army.modifiers || [];
+  const existing = army.modifiers.find(m => m.key === key);
+  if (existing) {
+    if (!def.stackable) return;
+    existing.n = (existing.n || 1) + 1;
+  } else {
+    army.modifiers.push({ key });
+  }
+  saveState();
+  _renderModifierPickerList();
+  renderArmyDetail();
+}
+function _armyStepModifier(armyId, key, d) {
+  const army = state.armies.find(a => a.id === armyId);
+  const am = army && armyModifiers(army).find(m => m.key === key);
+  if (!am) return;
+  const n = (am.n || 1) + d;
+  if (n < 1) return _armyRemoveModifier(armyId, key);
+  am.n = n;
+  saveState(); renderArmyDetail();
+}
+function _armyRemoveModifier(armyId, key) {
+  const army = state.armies.find(a => a.id === armyId);
+  if (!army) return;
+  army.modifiers = armyModifiers(army).filter(m => m.key !== key);
+  if (!army.modifiers.length) delete army.modifiers;
+  saveState(); renderArmyDetail();
+}
+function _armySetModNote(armyId, key, note) {
+  const army = state.armies.find(a => a.id === armyId);
+  const am = army && armyModifiers(army).find(m => m.key === key);
+  if (!am) return;
+  if (note) am.note = note; else delete am.note;
+  saveState();
+}
+
 function renderArmyDetail() {
   const panel = document.getElementById("army-detail-panel");
   if (!panel) return;
@@ -6244,17 +6425,21 @@ function renderArmyDetail() {
   const allAssets = allTacticalAssets();
   const poolPts = armyPoints(army);
   const deployedPts = armyDeployedPoints(army);
-  const overPtsLimit = army.pointsLimit && deployedPts > army.pointsLimit;
+  // Budget math uses the limit AFTER circumstance modifiers (limitDelta);
+  // the Target input still edits the raw base limit.
+  const _effLimit = effectiveLimit(army);
+  const overPtsLimit = _effLimit && deployedPts > _effLimit;
   const bgCount = army.bgCount || 3;
-  const _ptsRatio = army.pointsLimit ? deployedPts / army.pointsLimit : null;
+  const _ptsRatio = _effLimit ? deployedPts / _effLimit : null;
   const _barPct   = _ptsRatio != null ? Math.min(_ptsRatio, 1) * 100 : 0;
   const _barColor = _ptsRatio == null ? "#4a7adc" : _ptsRatio > 1 ? "#ef5350" : _ptsRatio > 0.85 ? "#ffa726" : "#4caf50";
-  const _remaining = army.pointsLimit ? army.pointsLimit - deployedPts : null;
+  const _remaining = _effLimit ? _effLimit - deployedPts : null;
   const _remainLabel = _remaining == null ? ""
-    : overPtsLimit ? `<i class="fa-solid fa-triangle-exclamation" style="margin-right:3px"></i>+${-_remaining} over`
+    : (overPtsLimit ? `<i class="fa-solid fa-triangle-exclamation" style="margin-right:3px"></i>+${-_remaining} over`
     : _remaining === 0 ? "Exactly on target"
-    : `${_remaining} pts to go`;
-  const budgetBarHTML = army.pointsLimit
+    : `${_remaining} pts to go`) +
+      (_effLimit !== (army.pointsLimit || 0) ? ` <span style="color:#7eb3ff">(limit ${_effLimit} after modifiers)</span>` : "");
+  const budgetBarHTML = _effLimit
     ? `<div style="margin-bottom:14px;padding:0 1px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:10px;color:var(--text-faint);letter-spacing:.03em">${Math.round((_ptsRatio||0)*100)}%</span>
@@ -6317,7 +6502,7 @@ function renderArmyDetail() {
 
   // Unified non-deployable banner (warn, never block - invalid armies are fine here).
   const deployIssues = [];
-  if(overPtsLimit) deployIssues.push(`Deployed cost <strong>${deployedPts} pts</strong> exceeds the army's <strong>${army.pointsLimit} pt</strong> limit by ${deployedPts-army.pointsLimit}.`);
+  if(overPtsLimit) deployIssues.push(`Deployed cost <strong>${deployedPts} pts</strong> exceeds the army's <strong>${_effLimit} pt</strong> limit${_effLimit !== (army.pointsLimit||0) ? " (after modifiers)" : ""} by ${deployedPts-_effLimit}.`);
   if(!bgViol.ok) {
     const offenders = (army.battleGroups||[]).slice(0,bgCount)
       .filter(bg => bgViol.violatingIds.has(bg.id))
@@ -6604,6 +6789,7 @@ function renderArmyDetail() {
     </div>
     ${armyIconPickerHTML}
     ${army.notes?`<div style="background:#0d0f14;border:1px solid #1e2530;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#8b949e;line-height:1.6;font-style:italic">${esc(army.notes).replace(/\n/g,"<br>")}</div>`:""}
+    ${_armyModifiersHTML(army)}
     <div class="info-strip" style="${overPtsLimit?"border-color:#ef535055":""}">
       <div>
         <div class="info-strip-label">Deployed</div>
@@ -6974,6 +7160,26 @@ ${bodyContent}
 }
 
 // ── Army print ────────────────────────────────────────────
+// Print block for the army's circumstance-modifier stack (empty when none).
+function _printModifiersHTML(army, pal) {
+  const active = armyModifiers(army);
+  if (!active.length) return "";
+  const rows = active.map(am => {
+    const def = modifierDef(am.key);
+    const label = def ? (def.label || def.key) : am.key;
+    const n = (am.n || 1) > 1 ? ` ×${am.n}` : "";
+    const effects = def ? (def.effects || []).map(ef =>
+      `<div style="font-size:11px;color:${pal.mutedText};line-height:1.5">&bull; ${_modEffectSummary(ef)}</div>`).join("") : "";
+    return `<div style="margin-bottom:6px">
+      <span style="font-weight:700;font-size:12px;color:${pal.pageText}">${esc(label)}${n}</span>
+      ${am.note ? `<span style="font-size:11px;color:${pal.mutedText};font-style:italic"> - ${esc(am.note)}</span>` : ""}
+      ${effects}</div>`;
+  }).join("");
+  return `<div style="padding:10px 14px;background:${pal.tfRowBg};border:1px solid ${pal.cardBorder};border-radius:6px;margin-bottom:16px">
+    <div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:${pal.mutedText};margin-bottom:6px">Circumstances</div>
+    ${rows}</div>`;
+}
+
 function _buildArmyPrintContent(army, pal, gray) {
   _ensureBGs(army);
   const fp          = isFreePick(army);
@@ -7035,6 +7241,7 @@ function _buildArmyPrintContent(army, pal, gray) {
       </div>
     </div>
     ${army.notes?`<div style="padding:10px 14px;background:${pal.tfRowBg};border:1px solid ${pal.cardBorder};border-radius:6px;margin-bottom:16px;font-size:12px;color:${pal.mutedText};line-height:1.6;font-style:italic">${esc(army.notes).replace(/\n/g,"<br>")}</div>`:""}
+    ${_printModifiersHTML(army, pal)}
     ${!fp?`<div style="margin-bottom:16px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;color:${pal.sectionHead};border-bottom:2px solid ${pal.accentLine};padding-bottom:4px;margin-bottom:10px">Task Forces</div>
       ${tfRows}
