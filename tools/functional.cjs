@@ -385,6 +385,44 @@ const URL = process.env.APP_URL || 'http://localhost:3001/index.html';
       msg: `garbage=${JSON.stringify(s[0].mods)} kept=${JSON.stringify(s[1].mods)}` };
   });
 
+  // 20. Circumstance modifiers: the stack adds/steps/deduplicates, persists
+  //     through save+reload, computes effectiveLimit, and renders in the army
+  //     detail with the budget note.
+  await check('modifiers: stack applies, persists, computes effectiveLimit', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    GAME.modifiers = [
+      { key: 'forced_march', label: 'Forced March', group: 'Campaign', scope: 'army', stackable: true,
+        effects: [{ type: 'limitDelta', pointsLimit: -50 }, { type: 'ruleText', text: 'No charge moves on turn 1.' }] },
+      { key: 'fresh', label: 'Fresh', scope: 'army', stackable: false, excludes: ['forced_march'], effects: [] },
+    ];
+    try {
+      state.armies.push({ id: 'army_c', name: 'Campaign Army', bgCount: 1, pointsLimit: 300,
+        taskForceIds: [], battleGroups: [] });
+      saveState();
+      _armyAddModifier('army_c', 'forced_march');
+      _armyAddModifier('army_c', 'forced_march');       // stackable -> n=2
+      _armyAddModifier('army_c', 'fresh');
+      _armyAddModifier('army_c', 'fresh');              // non-stackable -> no-op
+      const a = state.armies.find(x => x.id === 'army_c');
+      const stacked = a.modifiers.length === 2 && a.modifiers[0].n === 2;
+      const eff = effectiveLimit(a) === 200;            // 300 - 2*50
+      // persistence: modifiers ride the whole-state save untouched
+      state.armies = [];
+      loadState();
+      const b = state.armies.find(x => x.id === 'army_c');
+      const persisted = !!b && b.modifiers && b.modifiers.length === 2 && b.modifiers[0].n === 2;
+      // rendering: stack card + after-modifiers budget note
+      currentArmyId = 'army_c';
+      renderArmyDetail();
+      const html = document.getElementById('army-detail-panel').innerHTML;
+      const rendered = html.includes('Forced March') && html.includes('after modifiers') &&
+        html.includes('No charge moves');
+      return { pass: stacked && eff && persisted && rendered,
+        msg: `stacked=${stacked} effLimit=${effectiveLimit(b)} persisted=${persisted} rendered=${rendered}` };
+    } finally { delete GAME.modifiers; currentArmyId = null; localStorage.clear(); }
+  });
+
   await check('factions: army select built from GAME.factions.labels', () => {
     _refreshArmyFactionSelect();
     const opts = [...document.querySelectorAll('#army-faction option')].map(o => o.value);
