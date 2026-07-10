@@ -30,7 +30,9 @@ dist/index.html     The built app. This is what a user opens.
 tools/              golden_master.cjs + render_master.cjs (behavior guards),
                     functional.cjs (stateful-flow assertions: persistence,
                     undo, delete cascades, import validation, XSS),
-                    build_check.mjs (fast parse + build smoke test).
+                    build_check.mjs (fast parse + build smoke test),
+                    studio/ (Pack Studio, the in-browser pack authoring UI)
+                    + studio_functional.cjs (its Playwright suite).
 ```
 
 ## Build
@@ -121,3 +123,50 @@ run the golden masters to see it render.
 > system, and terminology strings like "Stand" / "Task Force"). Fully
 > generalizing those — and the inline-handler migration that unlocks real module
 > bundling — are the next milestones.
+
+## Authoring a pack with Pack Studio
+
+Pack Studio is a browser UI that generates both the pack `.js` (to commit into
+`packs/`) and a fully built `index.html`, from forms instead of hand-written
+JS. It is authoring tooling — nothing under `tools/studio/` ships in the app.
+
+```bash
+npm run studio                 # serves the REPO ROOT at 3001
+# open http://localhost:3001/tools/studio/
+npm run studio:test            # Playwright suite (needs the studio served)
+```
+
+Serving the repo root matters: the studio fetches `engine/app.js` and
+`src/shell.html` live, so it can never go stale against the engine (and a
+file:// open cannot work — the page tells you). "Load Skirmish example" seeds
+a complete project mirroring `packs/skirmish.js`; start there.
+
+**The project JSON is the source of truth.** Export it (footer button) and
+keep it with your game; the generated pack is never parsed back, so regenerate
+rather than hand-editing pack files. Drafts autosave to localStorage. Preview
+runs the real app in an instrumented iframe (boot beacon + error reporting);
+downloads are byte-pristine.
+
+Things worth knowing before you author:
+
+- **Cost escape hatch contract.** A custom `unitCost` has the signature
+  `(unit, ctx)` — `ctx` is reserved and currently `undefined`. Return at
+  least: `perStand, unitSize, defaultSize, belowDefault, unitPts, indPts,
+  cmdPts, heroPts, cmdHeroPts, saveDice, allowedRoles,
+  breakdown:{standPts, standComps, weaponPts, weaponComps, mult}` — extra
+  fields are preserved. The function MUST be pure per unit: results are
+  memoized per `unit.id`, so reading army or task-force state silently
+  caches stale values.
+- **Reserved fields** (`units[].group/max/unique/availability/tags`,
+  `cost.currencies`, `orgCharts[].total/allow`, the Instance Fields and most
+  Modifiers effect types) are validated, emitted, and inert — they exist so
+  projects never migrate when the matching engine phases land.
+- **Escape-hatch JS runs as your own code**, in your builds and previews
+  only. Imported project files can contain such code — import projects you
+  trust.
+- **Engine known issues a generated pack inherits** (documented, not yet
+  pack-driven): task-force section labels ("Core Units"…) are fixed; the
+  senior/lord commander-rank thresholds are hardcoded at 5/10 task forces;
+  battle-group sizing rules (min group = ceil(largest/2), 3 independents
+  count as 1 unit) are engine-fixed; add-unit limit explanations use
+  LaserStorm phrasing.

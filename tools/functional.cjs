@@ -240,6 +240,198 @@ const URL = process.env.APP_URL || 'http://localhost:3001/index.html';
     return { pass: adopted, msg: `key=${storageKey()} adoptedLegacyData=${adopted}` };
   });
 
+  // 13. Builder edit-save must preserve fields the form doesn't own (a
+  //     fixed-points pack's `pts`, imported extras): gatherBuilderUnit()
+  //     rebuilds from schema inputs only, so the save path must merge into the
+  //     existing unit, not replace it wholesale.
+  await check('builder: edit-save preserves unknown unit fields', () => {
+    localStorage.clear();
+    state.customUnits = [];
+    const cls = Object.keys(CLASS_INFO)[0];
+    state.customUnits.push({ id: 'cu_keep', name: 'Keeper', class: cls, faction: '',
+      customSize: 3, standTraits: [], weapons: [], pts: 7, extraField: 'survive-me' });
+    saveState();
+    editUnit('cu_keep');
+    saveToLibrary();
+    const u = state.customUnits.find(x => x.id === 'cu_keep');
+    return { pass: !!u && u.pts === 7 && u.extraField === 'survive-me' && u.name === 'Keeper',
+      msg: u ? `pts=${u.pts} extraField=${u.extraField}` : 'unit vanished' };
+  });
+
+  // 14. classes[].minSize must beat the legacy sh/beh literal: a class
+  //     declaring minSize 1 accepts single-model units in the builder, and an
+  //     undeclared class keeps the legacy clamp.
+  await check('builder: classes[].minSize honored over sh/beh literal', () => {
+    localStorage.clear();
+    const cls = Object.keys(CLASS_INFO)[0];
+    document.getElementById('b-class').value = cls;
+    const sizeEl = document.getElementById('b-unit-size');
+    const orig = CLASS_INFO[cls].minSize;
+    try {
+      CLASS_INFO[cls].minSize = 1;
+      sizeEl.value = 1;
+      const withMin = gatherBuilderUnit().customSize;
+      delete CLASS_INFO[cls].minSize;
+      sizeEl.value = 1;
+      const legacy = gatherBuilderUnit().customSize;
+      const legacyExpected = (cls === 'sh' || cls === 'beh') ? 1 : 2;
+      return { pass: withMin === 1 && legacy === legacyExpected,
+        msg: `minSize1->${withMin} legacy->${legacy} (expected 1/${legacyExpected})` };
+    } finally {
+      if (orig === undefined) delete CLASS_INFO[cls].minSize; else CLASS_INFO[cls].minSize = orig;
+    }
+  });
+
+  // 15. The Mechanize button must follow GAME.transport.canRide, not
+  //     class-name literals: with canRide stubbed false, no slot row offers it.
+  await check('transport: mechanize button gated by canRide', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const rider = allUnits().find(u => GAME.transport.canRide(u.class, u));
+    if (!rider) return { pass: true, msg: 'pack has no ridable class - vacuously true' };
+    state.taskForces.push({ id: 'tf_mech', name: 'MechTest', tfType: 'infantry',
+      commander: 'C', faction: '', notes: '', pointsLimit: 0,
+      units: [{ id: 'slot_m1', unitId: rider.id, unitType: 'unit', quantity: 1, role: 'core' }] });
+    saveState();
+    const panelHas = () => document.getElementById('tf-detail-panel').innerHTML
+      .includes(`openTransportPickerTF('tf_mech','slot_m1')`);
+    selectTF('tf_mech');
+    const before = panelHas();
+    const realCanRide = GAME.transport.canRide;
+    GAME.transport.canRide = () => false;
+    renderTFDetail();
+    const after = panelHas();
+    GAME.transport.canRide = realCanRide;
+    renderTFDetail();
+    return { pass: before === true && after === false,
+      msg: `canRide=true shows btn:${before}, canRide=false shows btn:${after}` };
+  });
+
+  // 16. The Army modal faction list must come from GAME.factions.labels, not a
+  //     hardcoded LaserStorm array.
+  // 17. Instance mods: cost varies per slot mods (memo keys must separate),
+  //     packs without instance fields are untouched, and modded entries never
+  //     merge on re-add.
+  await check('instance: mods reprice per slot and never merge', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const u = allUnits()[0];
+    // Pack-declares-instance-fields simulation: skill field + ctx-aware cost.
+    GAME.schema.instance = [{ key: 'skill', label: 'Skill', kind: 'number', badgeWhenNot: 4 }];
+    const realCost = GAME.cost.unitCost;
+    try {
+      GAME.cost.unitCost = function (unit, ctx) {
+        const r = realCost(unit);
+        if (!ctx || !ctx.mods || ctx.mods.skill == null) return r;
+        const d = (4 - ctx.mods.skill) * 2;
+        return Object.assign({}, r, { unitPts: r.unitPts + d, indPts: r.indPts + d });
+      };
+      saveState(); // nukes the cost memo
+      const stock = { id: 'slot_i1', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core' };
+      const modded = { id: 'slot_i2', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core', mods: { skill: 2 } };
+      const a = slotPointValue(stock), b = slotPointValue(modded);
+      const priced = b === a + 4;
+      // second read of each must hit the cache and stay separated
+      const priced2 = slotPointValue(stock) === a && slotPointValue(modded) === b;
+      // no-merge guard: adding the same unit to a BG never merges into a modded entry
+      state.armies.push({ id: 'army_i', name: 'A', bgCount: 1, armyType: 'fp', taskForceIds: [],
+        battleGroups: [{ id: 'bg_i', name: 'BG', symbol: 'skull', entries: [
+          { id: 'fpe_i1', unitId: u.id, unitType: 'unit', qty: 1, mods: { skill: 2 } }] }] });
+      currentArmyId = 'army_i';
+      libQuickAddUnit(u.id, 'bg_i', 'unit', null);
+      const entries = state.armies[0].battleGroups[0].entries;
+      const noMerge = entries.length === 2 && entries[0].qty === 1 && !entries[1].mods;
+      return { pass: priced && priced2 && noMerge,
+        msg: `stock=${a} modded=${b} cacheStable=${priced2} entriesAfterAdd=${entries.length}` };
+    } finally {
+      GAME.cost.unitCost = realCost;
+      delete GAME.schema.instance;
+      currentArmyId = null;
+      localStorage.clear();
+    }
+  });
+
+  // 18. Instance mods are user data: text values must render esc()'d in the
+  //     slot row (same rule as the crafted-import XSS cases).
+  await check('instance: mods text is escaped in slot rows', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    const u = allUnits()[0];
+    GAME.schema.instance = [{ key: 'pilot', label: 'Pilot', kind: 'text', uniqueInstance: true }];
+    try {
+      state.taskForces.push({ id: 'tf_x', name: 'XSS', tfType: 'infantry', commander: 'C',
+        faction: '', notes: '', pointsLimit: 0,
+        units: [{ id: 'slot_x1', unitId: u.id, unitType: 'unit', quantity: 1, role: 'core',
+          mods: { pilot: '<img src=x onerror="window.__pwned=1">' } }] });
+      saveState();
+      selectTF('tf_x');
+      const panel = document.getElementById('tf-detail-panel');
+      const injected = !!panel.querySelector('img[src="x"]') || !!window.__pwned;
+      const shown = panel.innerHTML.includes('&lt;img');
+      return { pass: !injected && shown, msg: `injected=${injected} escapedVisible=${shown}` };
+    } finally { delete GAME.schema.instance; localStorage.clear(); }
+  });
+
+  // 19. Migration normalizes garbage mods from crafted saves/imports.
+  await check('instance: _migrateState drops non-object mods', () => {
+    localStorage.clear();
+    state.taskForces = [{ id: 'tf_m', name: 'M', tfType: 'infantry', commander: 'C',
+      faction: '', notes: '', pointsLimit: 0,
+      units: [{ id: 'slot_m', unitId: 'u', unitType: 'unit', quantity: 1, role: 'core', mods: 'garbage' },
+              { id: 'slot_m2', unitId: 'u', unitType: 'unit', quantity: 1, role: 'core', mods: { ok: 1 } }] }];
+    _migrateState();
+    const s = state.taskForces[0].units;
+    return { pass: s[0].mods === undefined && typeof s[1].mods === 'object',
+      msg: `garbage=${JSON.stringify(s[0].mods)} kept=${JSON.stringify(s[1].mods)}` };
+  });
+
+  // 20. Circumstance modifiers: the stack adds/steps/deduplicates, persists
+  //     through save+reload, computes effectiveLimit, and renders in the army
+  //     detail with the budget note.
+  await check('modifiers: stack applies, persists, computes effectiveLimit', () => {
+    localStorage.clear();
+    state.taskForces = []; state.armies = []; state.expeditionaryForces = [];
+    GAME.modifiers = [
+      { key: 'forced_march', label: 'Forced March', group: 'Campaign', scope: 'army', stackable: true,
+        effects: [{ type: 'limitDelta', pointsLimit: -50 }, { type: 'ruleText', text: 'No charge moves on turn 1.' }] },
+      { key: 'fresh', label: 'Fresh', scope: 'army', stackable: false, excludes: ['forced_march'], effects: [] },
+    ];
+    try {
+      state.armies.push({ id: 'army_c', name: 'Campaign Army', bgCount: 1, pointsLimit: 300,
+        taskForceIds: [], battleGroups: [] });
+      saveState();
+      _armyAddModifier('army_c', 'forced_march');
+      _armyAddModifier('army_c', 'forced_march');       // stackable -> n=2
+      _armyAddModifier('army_c', 'fresh');
+      _armyAddModifier('army_c', 'fresh');              // non-stackable -> no-op
+      const a = state.armies.find(x => x.id === 'army_c');
+      const stacked = a.modifiers.length === 2 && a.modifiers[0].n === 2;
+      const eff = effectiveLimit(a) === 200;            // 300 - 2*50
+      // persistence: modifiers ride the whole-state save untouched
+      state.armies = [];
+      loadState();
+      const b = state.armies.find(x => x.id === 'army_c');
+      const persisted = !!b && b.modifiers && b.modifiers.length === 2 && b.modifiers[0].n === 2;
+      // rendering: stack card + after-modifiers budget note
+      currentArmyId = 'army_c';
+      renderArmyDetail();
+      const html = document.getElementById('army-detail-panel').innerHTML;
+      const rendered = html.includes('Forced March') && html.includes('after modifiers') &&
+        html.includes('No charge moves');
+      return { pass: stacked && eff && persisted && rendered,
+        msg: `stacked=${stacked} effLimit=${effectiveLimit(b)} persisted=${persisted} rendered=${rendered}` };
+    } finally { delete GAME.modifiers; currentArmyId = null; localStorage.clear(); }
+  });
+
+  await check('factions: army select built from GAME.factions.labels', () => {
+    _refreshArmyFactionSelect();
+    const opts = [...document.querySelectorAll('#army-faction option')].map(o => o.value);
+    const expected = ['', ...Object.keys((GAME.factions && GAME.factions.labels) || {}),
+      ...(state.customFactions || []).map(cf => cf.id), 'any'];
+    const match = JSON.stringify(opts) === JSON.stringify(expected);
+    return { pass: match, msg: match ? `${opts.length} options` : `got [${opts.join(',')}] want [${expected.join(',')}]` };
+  });
+
   await browser.close();
 
   // Report

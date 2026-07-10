@@ -344,6 +344,15 @@ function loadState() {
 function _migrateState() {
   // Migration: convert legacy faction string → reqs array
   (state.customTraits||[]).forEach(t => { if(!t.reqs) t.reqs = t.faction ? [{type:"faction",vals:[t.faction]}] : []; });
+  // Normalize instance mods: must be a plain object (crafted imports could
+  // carry anything). Values are rendered esc()'d, but the shape is enforced
+  // here so downstream code can trust typeof checks.
+  const normMods = s => {
+    if (s.mods === undefined) return;
+    if (!s.mods || typeof s.mods !== "object" || Array.isArray(s.mods)) delete s.mods;
+  };
+  (state.taskForces||[]).forEach(tf => (tf.units||[]).forEach(normMods));
+  (state.armies||[]).forEach(a => (a.battleGroups||[]).forEach(bg => (bg.entries||[]).forEach(normMods)));
   // Migrate old terror/transport traits on custom units
   (state.customUnits||[]).forEach(migrateCustomUnit);
   // Migration: ensure every slot has a stable, globally unique id (older data
@@ -440,6 +449,16 @@ function T(key) {
 function Tn(n, singularKey) {
   return (n === 1 ? T(singularKey) : T(singularKey + "s")).toLowerCase();
 }
+// Transport/attachment flavor strings, pack-overridable via
+// GAME.terms.transportNouns. LaserStorm's originals are the defaults so packs
+// that don't declare them render identically; a pack whose "transport" is a
+// horse team or a dropship overrides the nouns without touching the engine.
+function transportNouns() {
+  return Object.assign(
+    { action:"Mechanize", paired:"Mechanized", badge:"Transport", icon:"fa-truck",
+      rider:"infantry", riderByClass:{ fg:"gun" } },
+    (GAME.terms && GAME.terms.transportNouns) || {});
+}
 
 // ── Storage / export identity (pack-overridable) ──────────
 // The legacy LaserStorm build used the literal key "ls_army_builder" and the
@@ -518,14 +537,35 @@ function computeAllowedRoles(unit) {
 
 // Game-agnostic shell: memoizes the game pack's cost function per unit id.
 // The cache is invalidated by saveState/loadState/undoState.
-function calcPoints(unit) {
-  if (unit.id) {
+//
+// Per-instance mods: a fielded slot/entry may carry a `mods` object (pack
+// vocabulary declared in GAME.schema.instance). Only non-costInert fields
+// participate in cost - they extend the memo key and ride to the pack as
+// unitCost(unit, {mods}). Packs without instance fields never see a ctx and
+// every key degenerates to unit.id, exactly the pre-mods behavior.
+function _instanceCostMods(mods) {
+  const fields = (GAME.schema && GAME.schema.instance) || [];
+  if (!mods || !fields.length) return null;
+  const out = {};
+  for (const f of fields) {
+    if (f.costInert) continue;
+    if (mods[f.key] !== undefined) out[f.key] = mods[f.key];
+  }
+  return Object.keys(out).length ? out : null;
+}
+function _stableModsKey(m) {
+  return JSON.stringify(m, Object.keys(m).sort());
+}
+function calcPoints(unit, mods) {
+  const m = _instanceCostMods(mods);
+  const key = unit.id ? (m ? unit.id + "§" + _stableModsKey(m) : unit.id) : null;
+  if (key) {
     if (!_calcPtsCache) _calcPtsCache = new Map();
-    const hit = _calcPtsCache.get(unit.id);
+    const hit = _calcPtsCache.get(key);
     if (hit) return hit;
   }
-  const r = GAME.cost.unitCost(unit);
-  if (unit.id) _calcPtsCache.set(unit.id, r);
+  const r = m ? GAME.cost.unitCost(unit, { mods: m }) : GAME.cost.unitCost(unit);
+  if (key) _calcPtsCache.set(key, r);
   return r;
 }
 
@@ -537,7 +577,12 @@ function classLabel(c) { return (CLASS_INFO[c]||{}).label||c; }
 function classBadge(c, noTip) {
   const cp = CLASS_PROFILE[c], ci = CLASS_INFO[c]||{};
   if(!cp || noTip) return `<span class="badge badge-${c}">${classLabel(c)}</span>`;
-  const tip = `${ci.label} - ${cp.cat}. Save ${cp.save} | Assault ${cp.assault} | Vulnerable ${cp.vuln} | Snap ${cp.snap} | Transport ${cp.transport}.`;
+  // Tooltip columns are pack-overridable (GAME.terms.profileTipCols); the
+  // fallback is the legacy LaserStorm five, NOT profileCols, because the strip
+  // shows all columns while this tooltip historically omits dtime.
+  const tipCols = (GAME.terms && GAME.terms.profileTipCols) ||
+    [{key:"save",label:"Save"},{key:"assault",label:"Assault"},{key:"vuln",label:"Vulnerable"},{key:"snap",label:"Snap"},{key:"transport",label:"Transport"}];
+  const tip = `${ci.label} - ${cp.cat}. ` + tipCols.map(c => `${c.label} ${cp[c.key]}`).join(" | ") + `.`;
   return `<span class="badge badge-${c} tip" data-tip="${esc(tip)}">${classLabel(c)}</span>`;
 }
 function roleBadge(r) { return `<span class="badge badge-${r}">${r}</span>`; }
@@ -878,13 +923,14 @@ function mechPairCardHTML(infUnit, tuUnit, n, actionsHTML, viewType, opts={}) {
       </div>`;
   }
   const tuPtsVal = calcPoints(tuUnit).perStand;
-  const transportTag = `<span class="badge" style="background:#1a2a1a;color:#66bb6a;border:1px solid #66bb6a44">Transport</span>`;
+  const tn = transportNouns();
+  const transportTag = `<span class="badge" style="background:#1a2a1a;color:#66bb6a;border:1px solid #66bb6a44">${esc(tn.badge)}</span>`;
   return `<div class="unit-card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:stretch">
       ${halfInner(infUnit, viewType, {tfBadge: opts.tfBadge||""})}
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;background:#0d1a0d;border-left:1px solid #1e3a1e55;border-right:1px solid #1e3a1e55;gap:5px;min-width:28px;flex-shrink:0">
-        <i class="fa-solid fa-truck" style="color:#66bb6a;font-size:13px"></i>
-        <span style="font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.7px;color:#4a8a4a;writing-mode:vertical-rl;transform:rotate(180deg)">Mechanized</span>
+        <i class="fa-solid ${esc(tn.icon)}" style="color:#66bb6a;font-size:13px"></i>
+        <span style="font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.7px;color:#4a8a4a;writing-mode:vertical-rl;transform:rotate(180deg)">${esc(tn.paired)}</span>
       </div>
       ${halfInner(tuUnit, "unit", {countBadge: n, ptsVal: tuPtsVal, transportTag})}
     </div>
@@ -1934,7 +1980,7 @@ function onClassChange() {
   const sizeEl = document.getElementById("b-unit-size");
   if(sizeEl) {
     sizeEl.value = ci.size;
-    sizeEl.min = (cls==="sh"||cls==="beh") ? 1 : 2;
+    sizeEl.min = ci.minSize ?? ((cls==="sh"||cls==="beh") ? 1 : 2);
     const hint = document.getElementById("b-size-hint");
     if(hint) hint.textContent = `(def ${ci.size})`;
   }
@@ -2201,8 +2247,8 @@ function gatherBuilderUnit() {
   const standTraits = currentBuilderTraits.slice();
   const weapons = builderWeapons.map(w => ({...w, traits:(w.traits||[]).slice()}));
   const cls = document.getElementById("b-class").value;
-  const ci = CLASS_INFO[cls] || CLASS_INFO.inf;
-  const minSize = (cls==="sh"||cls==="beh") ? 1 : 2;
+  const ci = CLASS_INFO[cls] || CLASS_INFO[Object.keys(CLASS_INFO)[0]];
+  const minSize = ci.minSize ?? ((cls==="sh"||cls==="beh") ? 1 : 2);
   const rawSize = parseInt(document.getElementById("b-unit-size")?.value) || ci.size;
   const unit = {
     name: document.getElementById("b-name").value || "Unnamed Unit",
@@ -2342,7 +2388,10 @@ function saveToLibrary() {
     const idx = state.customUnits.findIndex(u=>u.id===editingUnitId);
     if(idx>=0) {
       unit.id = editingUnitId;
-      state.customUnits[idx] = unit;
+      // Preserve fields the builder form doesn't own (e.g. a fixed-points
+      // pack's `pts`): the gathered unit only carries schema-driven keys, so a
+      // wholesale replace would silently drop everything else.
+      state.customUnits[idx] = Object.assign({}, state.customUnits[idx], unit);
       saveState();
       renderAll();
       flashBtn("b-save-btn","Saved!");
@@ -3348,7 +3397,9 @@ function libQuickAddUnit(unitId, bgId, unitType, btnEl) {
   const bg = army && (army.battleGroups||[]).find(b=>b.id===bgId);
   if(!army || !bg) return;
   bg.entries = bg.entries || [];
-  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === unitType);
+  // Never merge into an instance-modded entry (same rule as transport below:
+  // the new copy carries no mods and must not adopt the existing one's).
+  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === unitType && !e.mods);
   if(existing) {
     existing.qty = (existing.qty||1) + 1;
   } else {
@@ -3782,7 +3833,7 @@ function availableTypesFor(cls, role) {
 function slotPointValue(slot) {
   const u = unitById(slot.unitId);
   if(!u) return 0;
-  const pts = calcPoints(u);
+  const pts = calcPoints(u, slot.mods);
   const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[slot.unitType||"unit"];
   let basePts = (pts[typeKey] != null ? pts[typeKey] : pts.unitPts) || 0;
   if (slot.transport) {
@@ -3877,6 +3928,8 @@ function canAddToSection(tf, role, unitCls) {
 function maxQtyForSlot(tf, slot) {
   const u = unitById(slot.unitId);
   if(!u) return slot.quantity;
+  // A set uniqueInstance field (named pilot etc.) pins the stack at 1.
+  if (slotHasUniqueInstance(u, slot.mods)) return 1;
   const lim = tfSectionLimits(tf);
   const role = slot.role;
   if(role === "core") {
@@ -4185,11 +4238,13 @@ function renderTFDetail() {
           const u = unitById(slot.unitId);
           if(!u) return `<div class="tf-unit-row"><span style="color:#666">[Deleted Unit]</span><button class="trait-edit-btn" onclick="confirmBtn(this,()=>removeTFSlot('${tf.id}','${slot.id}'))">Remove</button></div>`;
           const typeLabel_ = TYPE_LABELS[slot.unitType||"unit"] || "Unit";
-          const canMech = (u.class==="inf"||u.class==="fg");
+          const tn_ = transportNouns();
+          const canMech = !!GAME.transport.canRide(u.class, u);
           const tu = slot.transport ? unitById(slot.transport) : null;
           const mechBtn = canMech
-            ? `<button class="trait-edit-btn" onclick="openTransportPickerTF('${tf.id}','${slot.id}')" title="Mechanized transport"${tu?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid fa-truck"></i> ${tu?`${mechanizedCount(u,tu,slot.unitType)}&times; ${esc(tu.name)}`:"Mechanize"}</button>`
+            ? `<button class="trait-edit-btn" onclick="openTransportPickerTF('${tf.id}','${slot.id}')" title="${esc(tn_.paired)} transport"${tu?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(tn_.icon)}"></i> ${tu?`${mechanizedCount(u,tu,slot.unitType)}&times; ${esc(tu.name)}`:esc(tn_.action)}</button>`
             : "";
+          const instBtn = instanceBtnHTML(u, slot.mods, `openInstanceEditorTF('${tf.id}','${slot.id}')`);
           const slotActions = `<div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <div class="qty-ctrl">
@@ -4198,7 +4253,7 @@ function renderTFDetail() {
                 <button class="qty-btn" onclick="changeTFSlotQty('${tf.id}','${slot.id}',1)">+</button>
               </div>
               <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1a2030;color:#7eb3ff;border:1px solid #2a3a5a">${esc(typeLabel_)}</span>
-              ${mechBtn}
+              ${mechBtn}${instBtn}
             </div>
             <button class="trait-edit-btn" onclick="confirmBtn(this,()=>removeTFSlot('${tf.id}','${slot.id}'))">Remove</button>
           </div>`;
@@ -4458,7 +4513,8 @@ function renderAddUnitList() {
   // Filter out units from other factions if TF has a faction set
   if(tf && tf.faction === "any") { /* no filter - all factions allowed */ }
   else if(tf && tf.faction) { units = units.filter(u => !u.faction || u.faction === tf.faction); }
-  else { units = units.filter(u => u.faction === "standard" || !u.faction); }
+  else { const defFac = (GAME.factions && GAME.factions.defaultKey) || "standard";
+         units = units.filter(u => u.faction === defFac || !u.faction); }
   const list = document.getElementById("addunit-list");
   const rows = units.map(u => {
     const pts = calcPoints(u);
@@ -4572,7 +4628,8 @@ function confirmAddUnit() {
   const unitType = types.includes(addUnitSelectedType) ? addUnitSelectedType : (types[0] || "unit");
   const remaining = sectionRemainingQty(tf, addUnitTargetRole, u.class);
   const addQty = Math.max(1, Math.min(addUnitQty, isFinite(remaining) ? remaining : addUnitQty));
-  const existing = (tf.units||[]).find(s => s.unitId === addUnitSelectedId && s.role === addUnitTargetRole && s.unitType === unitType);
+  // Never merge into an instance-modded slot - the added copies are stock.
+  const existing = (tf.units||[]).find(s => s.unitId === addUnitSelectedId && s.role === addUnitTargetRole && s.unitType === unitType && !s.mods);
   if(existing) {
     existing.quantity = (existing.quantity || 1) + addQty;
   } else {
@@ -5355,7 +5412,7 @@ function entryPointValue(e) {
     if(!slot) return 0;
     const u = unitById(slot.unitId);
     if(!u) return 0;
-    const pts = calcPoints(u);
+    const pts = calcPoints(u, slot.mods);  // BG entries inherit the slot's instance mods
     const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[slot.unitType||"unit"];
     let basePts = (pts[typeKey]!=null?pts[typeKey]:pts.unitPts)||0;
     if (slot.transport) {
@@ -5367,7 +5424,7 @@ function entryPointValue(e) {
   } else {
     const u = unitById(e.unitId);
     if(!u) return 0;
-    const pts = calcPoints(u);
+    const pts = calcPoints(u, e.mods);
     const typeKey = {unit:"unitPts",independent:"indPts",hero:"heroPts",command:"cmdPts",cmdHero:"cmdHeroPts"}[e.unitType||"unit"];
     let basePts = (pts[typeKey]!=null?pts[typeKey]:pts.unitPts)||0;
     if (e.transport) {
@@ -5401,13 +5458,13 @@ function slotRemainingQty(army, slot) {
 
 function mechanizedCount(infUnit, transportUnit, unitType) {
   if (!infUnit || !transportUnit) return 0;
-  if (!GAME.transport.canRide(infUnit.class)) return 0;
+  if (!GAME.transport.canRide(infUnit.class, infUnit)) return 0;
   const cap = transportSlotsFor(transportUnit);
   if (!cap) return 0;
   return Math.ceil(transportSlotsNeeded(infUnit, unitType) / cap);
 }
 function availableTransports() {
-  return allUnits().filter(u => GAME.transport.canCarry(u.class) && transportSlotsFor(u) > 0);
+  return allUnits().filter(u => GAME.transport.canCarry(u.class, u) && transportSlotsFor(u) > 0);
 }
 // ── Transport picker (per-deployment) ─────────────────────
 // TF slot:  openTransportPickerTF(tfId, slotId)
@@ -5438,7 +5495,8 @@ function _openTransportPicker(unit, current, faction) {
   const single = (_tpUnitType||"unit") !== "unit";
   const stands = single ? 1 : calcPoints(unit).unitSize;
   const need = transportSlotsNeeded(unit, _tpUnitType);
-  const noun = unit.class==="fg" ? "gun" : "infantry";
+  const tn = transportNouns();
+  const noun = (tn.riderByClass||{})[unit.class] || tn.rider;
   const singleNote = single && unit.class==="fg"
     ? " (a single stand mechanizes with one slot)" : "";
   intro.innerHTML = `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - ${stands} ${noun} ${Tn(stands,"stand")} needing <strong>${need}</strong> transport slot${need!==1?"s":""}${singleNote}. Pick a transport AFV; the minimum number needed is added automatically.`;
@@ -5515,6 +5573,167 @@ function clearTransport() {
 function _refreshAfterTransport() {
   if(_tpKind==="tf"){ renderTFList(); if(currentTFId===_tpTFId) renderTFDetail(); }
   if(_tpKind==="fp"){ renderArmyList(); renderArmyDetail(); }
+}
+
+// ── Per-instance mods (GAME.schema.instance) ──────────────
+// Pack-declared fields a FIELDED slot/free-pick entry carries individually
+// (pilot skill, ammo, campaign state) - a generalization of the transport
+// pattern: slot-owned, cost-aware via calcPoints(unit, mods), no-merge
+// guarded, riding whole-object copies through save/export. Everything here
+// is inert unless the pack declares GAME.schema.instance.
+//
+// Semantics: mods are UNIFORM across a slot's quantity stack (qty 4 with
+// Skill 3 = four Skill-3 units; distinct pilots = distinct slots), and a set
+// field whose descriptor is uniqueInstance clamps the stack to 1.
+function instanceFieldsFor(unit) {
+  const fields = (GAME.schema && GAME.schema.instance) || [];
+  return fields.filter(f => {
+    if (typeof f.appliesTo === "function") return f.appliesTo(unit);
+    if (f.appliesTo && Array.isArray(f.appliesTo.classes) && f.appliesTo.classes.length)
+      return f.appliesTo.classes.includes(unit.class);
+    return true;
+  });
+}
+function instanceBadges(unit, mods) {
+  if (!mods) return [];
+  const out = [];
+  for (const f of instanceFieldsFor(unit)) {
+    const v = mods[f.key];
+    if (v === undefined || v === "") continue;
+    if (typeof f.badge === "function") { const b = f.badge(v, unit); if (b) out.push(String(b)); continue; }
+    if (f.badgeWhenNot !== undefined && v === f.badgeWhenNot) continue;
+    out.push(`${f.label} ${v}`);
+  }
+  return out;
+}
+function slotHasUniqueInstance(unit, mods) {
+  if (!mods) return false;
+  return instanceFieldsFor(unit).some(f => f.uniqueInstance && mods[f.key] !== undefined && mods[f.key] !== "");
+}
+// The slot-row button, mech-button styled: shows the badges when set.
+function instanceBtnHTML(unit, mods, onclickStr) {
+  if (!instanceFieldsFor(unit).length) return "";
+  const badges = instanceBadges(unit, mods);
+  const label = badges.length ? badges.map(esc).join(", ") : "Instance";
+  return `<button class="trait-edit-btn" onclick="${onclickStr}" title="Instance details"${mods?` style="border-color:#7eb3ff55;color:#7eb3ff;background:#0e141f"`:""}><i class="fa-solid fa-user-gear"></i> ${label}</button>`;
+}
+
+let _instKind = null, _instTFId = null, _instSlotId = null,
+    _instArmyId = null, _instBgId = null, _instEntryId = null,
+    _instUnit = null, _instDraft = null;
+
+function _ensureInstanceModal() {
+  if (document.getElementById("modal-instance")) return;
+  const div = document.createElement("div");
+  div.id = "modal-instance";
+  div.className = "modal-bg";
+  div.innerHTML = `<div class="modal" style="max-width:420px">
+    <div class="modal-header"><span>Instance Details</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-instance')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div id="instance-intro" style="font-size:12px;color:#8b949e;line-height:1.5;margin-bottom:12px"></div>
+    <div id="instance-fields"></div>
+    <div id="instance-price" style="font-size:12px;color:#e0e0e0;margin-top:10px"></div>
+    <div style="margin-top:12px;display:flex;justify-content:space-between;gap:8px">
+      <button class="btn btn-secondary" onclick="clearInstanceMods()">Clear (stock unit)</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-secondary" onclick="closeModal('modal-instance')">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmInstanceMods()">Apply</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+}
+
+function openInstanceEditorTF(tfId, slotId) {
+  const tf = state.taskForces.find(t=>t.id===tfId);
+  const slot = tf && (tf.units||[]).find(s=>s.id===slotId);
+  const u = slot && unitById(slot.unitId);
+  if (!u) return;
+  _instKind = "tf"; _instTFId = tfId; _instSlotId = slotId;
+  _openInstanceEditor(u, slot.mods, slot.quantity || 1);
+}
+function openInstanceEditorFP(armyId, bgId, entryId) {
+  const army = state.armies.find(a=>a.id===armyId);
+  const bg = army && (army.battleGroups||[]).find(b=>b.id===bgId);
+  const e = bg && (bg.entries||[]).find(x=>x.id===entryId);
+  const u = e && unitById(e.unitId);
+  if (!u) return;
+  _instKind = "fp"; _instArmyId = armyId; _instBgId = bgId; _instEntryId = entryId;
+  _openInstanceEditor(u, e.mods, e.qty || 1);
+}
+function _openInstanceEditor(unit, mods, qty) {
+  _ensureInstanceModal();
+  _instUnit = unit;
+  _instDraft = Object.assign({}, mods || {});
+  document.getElementById("instance-intro").innerHTML =
+    `<strong style="color:#e0e0e0">${esc(unit.name)}</strong> - these details apply to the whole stack` +
+    (qty > 1 ? ` (all ${qty} copies)` : "") + `. Fields marked ° force quantity 1.`;
+  // Weapon-editor pattern (value-carrying inputs), NOT the builder's global
+  // b-* ids: many instances exist at once, so inputs must own their values.
+  document.getElementById("instance-fields").innerHTML = instanceFieldsFor(unit).map(f => {
+    const v = _instDraft[f.key];
+    const mark = f.uniqueInstance ? "°" : "";
+    let input;
+    if (f.kind === "select") {
+      const opts = (typeof f.options === "function" ? f.options() : f.options || []);
+      input = `<select oninput="_instFieldChanged('${esc(f.key)}', this.value, 'select')">` +
+        `<option value=""${v===undefined?" selected":""}>-</option>` +
+        opts.map(o => `<option value="${esc(String(o.v))}"${String(v)===String(o.v)?" selected":""}>${esc(o.l)}</option>`).join("") +
+        `</select>`;
+    } else if (f.kind === "text") {
+      input = `<input type="text" value="${esc(v ?? "")}"${f.maxLen?` maxlength="${+f.maxLen}"`:""} oninput="_instFieldChanged('${esc(f.key)}', this.value, 'text')">`;
+    } else {
+      input = `<input type="number" value="${esc(v ?? "")}"${f.min!=null?` min="${+f.min}"`:""}${f.max!=null?` max="${+f.max}"`:""} placeholder="${esc(f.value ?? "")}" oninput="_instFieldChanged('${esc(f.key)}', this.value, 'number')">`;
+    }
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <label style="flex:0 0 130px;font-size:11px;color:#8b949e;font-weight:bold">${esc(f.label)}${mark}</label>${input}</div>`;
+  }).join("");
+  _renderInstancePrice();
+  openModal("modal-instance");
+}
+function _instFieldChanged(key, val, kind) {
+  if (val === "" || val === undefined) delete _instDraft[key];
+  else _instDraft[key] = kind === "number" ? +val : val;
+  _renderInstancePrice();
+}
+function _renderInstancePrice() {
+  const el = document.getElementById("instance-price");
+  if (!el || !_instUnit) return;
+  // Live repricing, uncached on purpose (mirrors calculateBuilder): the pack
+  // sees exactly the ctx it would get from calcPoints.
+  const m = _instanceCostMods(_instDraft);
+  const r = m ? GAME.cost.unitCost(_instUnit, { mods: m }) : GAME.cost.unitCost(_instUnit);
+  const base = m ? GAME.cost.unitCost(_instUnit) : r;
+  const delta = (r.unitPts || 0) - (base.unitPts || 0);
+  el.innerHTML = `Unit cost: <strong>${r.unitPts} pts</strong>` +
+    (delta ? ` <span style="color:${delta>0?"#ef9a9a":"#66bb6a"}">(${delta>0?"+":""}${delta} vs stock)</span>` : "");
+}
+function _instTargetObjs() {
+  if (_instKind === "tf") {
+    const tf = state.taskForces.find(t=>t.id===_instTFId);
+    return { holder: tf && (tf.units||[]).find(s=>s.id===_instSlotId), qtyKey: "quantity" };
+  }
+  const army = state.armies.find(a=>a.id===_instArmyId);
+  const bg = army && (army.battleGroups||[]).find(b=>b.id===_instBgId);
+  return { holder: bg && (bg.entries||[]).find(x=>x.id===_instEntryId), qtyKey: "qty" };
+}
+function confirmInstanceMods() {
+  const { holder, qtyKey } = _instTargetObjs();
+  if (holder) {
+    if (Object.keys(_instDraft).length) holder.mods = _instDraft;
+    else delete holder.mods;
+    if (holder.mods && slotHasUniqueInstance(_instUnit, holder.mods) && (holder[qtyKey]||1) > 1) {
+      holder[qtyKey] = 1;
+      if (_instKind === "tf") clampArmyAssignments(holder.id, 1);
+    }
+    saveState();
+  }
+  closeModal("modal-instance");
+  if (_instKind === "tf") { renderTFList(); if(currentTFId===_instTFId) renderTFDetail(); if(currentArmyId) renderArmyDetail(); }
+  else { renderArmyList(); renderArmyDetail(); }
+}
+function clearInstanceMods() {
+  _instDraft = {};
+  confirmInstanceMods();
 }
 // When a TF slot's quantity drops, trim this slot's BG entries (later groups
 // first) so no army ever has more units placed than the slot now provides.
@@ -6010,6 +6229,187 @@ function backToArmyList() {
   renderArmyList();
 }
 
+// ── Circumstance modifiers (GAME.modifiers) ───────────────
+// An army carries an ordered stack of pack-vocabulary circumstance layers:
+// army.modifiers = [{key, n?, note?}]. Scenario rules, campaign fatigue,
+// supply states. State/persistence/export ride the existing whole-object
+// paths for free; this block is the UI + the one computed effect
+// (limitDelta -> effectiveLimit). Other effect types are TRACKED and shown,
+// not applied - later phases compute them. Inert unless the pack declares
+// GAME.modifiers (or stale data carries a stack).
+function modifierDefs() { return GAME.modifiers || []; }
+function modifierDef(key) { return modifierDefs().find(m => m.key === key); }
+function armyModifiers(army) { return (army && army.modifiers) || []; }
+
+// The army's points limit after limitDelta modifiers. 0/unset = no limit,
+// which modifiers never invent.
+function effectiveLimit(army) {
+  const base = army.pointsLimit || 0;
+  if (!base) return base;
+  let delta = 0;
+  for (const am of armyModifiers(army)) {
+    const def = modifierDef(am.key);
+    if (!def) continue;
+    for (const ef of def.effects || [])
+      if (ef.type === "limitDelta") delta += (+ef.pointsLimit || 0) * (am.n || 1);
+  }
+  return Math.max(0, base + delta);
+}
+
+function _modWhereSuffix(ef) {
+  const w = ef.where || {};
+  const parts = [].concat(w.classes || [], w.factions || [], w.tags || []);
+  return parts.length ? ` (${parts.map(esc).join(", ")})` : "";
+}
+function _traitLabelFor(key) {
+  const t = (GAME.traits && GAME.traits.stand && GAME.traits.stand[key]) ||
+            (GAME.traits && GAME.traits.weapon && GAME.traits.weapon[key]);
+  return t ? t[0] : key;
+}
+function _modEffectSummary(ef) {
+  const tracked = ` <span style="color:#6e7681;font-size:10px">(tracked, not applied)</span>`;
+  switch (ef.type) {
+    case "ruleText":   return esc(ef.text || "");
+    case "traitGrant": return `Grants <strong>${esc(_traitLabelFor(ef.trait))}</strong>${_modWhereSuffix(ef)}${tracked}`;
+    case "traitRemove":return `Removes <strong>${esc(_traitLabelFor(ef.trait))}</strong>${_modWhereSuffix(ef)}${tracked}`;
+    case "statShift":  return `${esc(ef.stat || "?")} ${(+ef.delta||0) >= 0 ? "+" : ""}${+ef.delta||0}${_modWhereSuffix(ef)}${tracked}`;
+    case "costMult":   return `Cost ×${+ef.mult || 1}${_modWhereSuffix(ef)}${tracked}`;
+    case "costDelta":  return `Cost ${(+ef.delta||0) >= 0 ? "+" : ""}${+ef.delta||0} pts${_modWhereSuffix(ef)}${tracked}`;
+    case "availability": return `Availability restricted${_modWhereSuffix(ef)}${tracked}`;
+    case "orgDelta":   return `Org: ${esc(ef.chart || "?")}/${esc(ef.slot || "?")} max ${(+ef.maxDelta||0) >= 0 ? "+" : ""}${+ef.maxDelta||0}${tracked}`;
+    case "limitDelta": return `Points limit ${(+ef.pointsLimit||0) >= 0 ? "+" : ""}${+ef.pointsLimit||0}`;
+    default:           return esc(ef.type || "?") + tracked;
+  }
+}
+
+function _armyModifiersHTML(army) {
+  if (!modifierDefs().length && !armyModifiers(army).length) return "";
+  const rows = armyModifiers(army).map(am => {
+    const def = modifierDef(am.key);
+    if (!def) return `<div style="border:1px solid #7a400055;border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px;color:#d4a017">
+      Unknown modifier <strong>${esc(am.key)}</strong> (not in this pack's vocabulary)
+      <button class="trait-edit-btn" style="margin-left:8px" onclick="_armyRemoveModifier('${army.id}','${esc(am.key)}')">Remove</button></div>`;
+    const stepper = def.stackable
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px">
+          <button class="qty-btn" onclick="_armyStepModifier('${army.id}','${esc(am.key)}',-1)">−</button>
+          <span style="font-weight:bold;font-size:12px">&times;${am.n || 1}</span>
+          <button class="qty-btn" onclick="_armyStepModifier('${army.id}','${esc(am.key)}',1)">+</button>
+        </span>` : "";
+    const effects = (def.effects || []).map(ef =>
+      `<div style="font-size:11px;color:#8b949e;line-height:1.5;margin-top:2px">&bull; ${_modEffectSummary(ef)}</div>`).join("");
+    return `<div style="border:1px solid #2a3a5a;border-radius:8px;padding:8px 12px;margin-bottom:6px;background:#10141d">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong style="font-size:12px;color:#7eb3ff">${esc(def.label || def.key)}</strong>
+        ${def.group ? `<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:#1a2030;color:#7eb3ff;border:1px solid #2a3a5a">${esc(def.group)}</span>` : ""}
+        ${stepper}
+        <input type="text" value="${esc(am.note || "")}" placeholder="note..."
+          style="flex:1;min-width:90px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:4px;color:#8b949e;font-size:11px;padding:2px 7px;font-style:italic"
+          onchange="_armySetModNote('${army.id}','${esc(am.key)}',this.value)">
+        <button class="trait-edit-btn" style="border-color:#8b000066;color:#ef5350" onclick="_armyRemoveModifier('${army.id}','${esc(am.key)}')">Remove</button>
+      </div>${effects}</div>`;
+  }).join("");
+  const addBtn = modifierDefs().length
+    ? `<button class="trait-edit-btn" onclick="openModifierPicker('${army.id}')"><i class="fa-solid fa-layer-group"></i> Add Modifier</button>` : "";
+  return `<div style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#6e7681">Circumstances</span>${addBtn}
+    </div>${rows}</div>`;
+}
+
+let _modPickerArmyId = null;
+function _ensureModifierPicker() {
+  if (document.getElementById("modal-modifier-picker")) return;
+  const div = document.createElement("div");
+  div.id = "modal-modifier-picker";
+  div.className = "modal-bg";
+  div.innerHTML = `<div class="modal" style="max-width:480px">
+    <div class="modal-header"><span>Add Circumstance Modifier</span> <button class="modal-close" aria-label="Close" onclick="closeModal('modal-modifier-picker')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="scrolllist" id="modifier-picker-list" style="max-height:380px"></div>
+  </div>`;
+  document.body.appendChild(div);
+}
+function openModifierPicker(armyId) {
+  _modPickerArmyId = armyId;
+  _ensureModifierPicker();
+  _renderModifierPickerList();
+  openModal("modal-modifier-picker");
+}
+function _renderModifierPickerList() {
+  const army = state.armies.find(a => a.id === _modPickerArmyId);
+  if (!army) return;
+  const active = armyModifiers(army);
+  const activeKeys = new Set(active.map(m => m.key));
+  const blocked = key => {
+    const def = modifierDef(key);
+    if ((def.excludes || []).some(x => activeKeys.has(x))) return true;
+    return active.some(am => {
+      const d = modifierDef(am.key);
+      return d && (d.excludes || []).includes(key);
+    });
+  };
+  const groups = new Map();
+  for (const def of modifierDefs()) {
+    if (!groups.has(def.group || "")) groups.set(def.group || "", []);
+    groups.get(def.group || "").push(def);
+  }
+  const list = document.getElementById("modifier-picker-list");
+  list.innerHTML = [...groups.entries()].map(([g, defs]) =>
+    (g ? `<div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#6e7681;margin:8px 0 4px">${esc(g)}</div>` : "") +
+    defs.map(def => {
+      const isActive = activeKeys.has(def.key);
+      const dis = blocked(def.key) || (isActive && !def.stackable);
+      const state_ = dis ? (isActive ? "active" : "conflicts with an active modifier")
+        : isActive ? `active &times;${(active.find(m=>m.key===def.key)||{}).n || 1} - add another` : "";
+      const effects = (def.effects || []).map(ef => `<div style="font-size:11px;color:#8b949e;line-height:1.4">&bull; ${_modEffectSummary(ef)}</div>`).join("");
+      return `<div class="list-row" style="${dis ? "opacity:.45;cursor:default" : ""}" ${dis ? "" : `onclick="_armyAddModifier('${_modPickerArmyId}','${esc(def.key)}')"`}>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:bold;color:#fff;margin-bottom:2px">${esc(def.label || def.key)}${state_ ? `<span style="font-size:10px;color:#6e7681;margin-left:6px">${state_}</span>` : ""}</div>
+          ${effects}
+        </div>
+      </div>`;
+    }).join("")
+  ).join("");
+}
+function _armyAddModifier(armyId, key) {
+  const army = state.armies.find(a => a.id === armyId);
+  const def = modifierDef(key);
+  if (!army || !def) return;
+  army.modifiers = army.modifiers || [];
+  const existing = army.modifiers.find(m => m.key === key);
+  if (existing) {
+    if (!def.stackable) return;
+    existing.n = (existing.n || 1) + 1;
+  } else {
+    army.modifiers.push({ key });
+  }
+  saveState();
+  _renderModifierPickerList();
+  renderArmyDetail();
+}
+function _armyStepModifier(armyId, key, d) {
+  const army = state.armies.find(a => a.id === armyId);
+  const am = army && armyModifiers(army).find(m => m.key === key);
+  if (!am) return;
+  const n = (am.n || 1) + d;
+  if (n < 1) return _armyRemoveModifier(armyId, key);
+  am.n = n;
+  saveState(); renderArmyDetail();
+}
+function _armyRemoveModifier(armyId, key) {
+  const army = state.armies.find(a => a.id === armyId);
+  if (!army) return;
+  army.modifiers = armyModifiers(army).filter(m => m.key !== key);
+  if (!army.modifiers.length) delete army.modifiers;
+  saveState(); renderArmyDetail();
+}
+function _armySetModNote(armyId, key, note) {
+  const army = state.armies.find(a => a.id === armyId);
+  const am = army && armyModifiers(army).find(m => m.key === key);
+  if (!am) return;
+  if (note) am.note = note; else delete am.note;
+  saveState();
+}
+
 function renderArmyDetail() {
   const panel = document.getElementById("army-detail-panel");
   if (!panel) return;
@@ -6025,17 +6425,21 @@ function renderArmyDetail() {
   const allAssets = allTacticalAssets();
   const poolPts = armyPoints(army);
   const deployedPts = armyDeployedPoints(army);
-  const overPtsLimit = army.pointsLimit && deployedPts > army.pointsLimit;
+  // Budget math uses the limit AFTER circumstance modifiers (limitDelta);
+  // the Target input still edits the raw base limit.
+  const _effLimit = effectiveLimit(army);
+  const overPtsLimit = _effLimit && deployedPts > _effLimit;
   const bgCount = army.bgCount || 3;
-  const _ptsRatio = army.pointsLimit ? deployedPts / army.pointsLimit : null;
+  const _ptsRatio = _effLimit ? deployedPts / _effLimit : null;
   const _barPct   = _ptsRatio != null ? Math.min(_ptsRatio, 1) * 100 : 0;
   const _barColor = _ptsRatio == null ? "#4a7adc" : _ptsRatio > 1 ? "#ef5350" : _ptsRatio > 0.85 ? "#ffa726" : "#4caf50";
-  const _remaining = army.pointsLimit ? army.pointsLimit - deployedPts : null;
+  const _remaining = _effLimit ? _effLimit - deployedPts : null;
   const _remainLabel = _remaining == null ? ""
-    : overPtsLimit ? `<i class="fa-solid fa-triangle-exclamation" style="margin-right:3px"></i>+${-_remaining} over`
+    : (overPtsLimit ? `<i class="fa-solid fa-triangle-exclamation" style="margin-right:3px"></i>+${-_remaining} over`
     : _remaining === 0 ? "Exactly on target"
-    : `${_remaining} pts to go`;
-  const budgetBarHTML = army.pointsLimit
+    : `${_remaining} pts to go`) +
+      (_effLimit !== (army.pointsLimit || 0) ? ` <span style="color:#7eb3ff">(limit ${_effLimit} after modifiers)</span>` : "");
+  const budgetBarHTML = _effLimit
     ? `<div style="margin-bottom:14px;padding:0 1px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <span style="font-size:10px;color:var(--text-faint);letter-spacing:.03em">${Math.round((_ptsRatio||0)*100)}%</span>
@@ -6098,7 +6502,7 @@ function renderArmyDetail() {
 
   // Unified non-deployable banner (warn, never block - invalid armies are fine here).
   const deployIssues = [];
-  if(overPtsLimit) deployIssues.push(`Deployed cost <strong>${deployedPts} pts</strong> exceeds the army's <strong>${army.pointsLimit} pt</strong> limit by ${deployedPts-army.pointsLimit}.`);
+  if(overPtsLimit) deployIssues.push(`Deployed cost <strong>${deployedPts} pts</strong> exceeds the army's <strong>${_effLimit} pt</strong> limit${_effLimit !== (army.pointsLimit||0) ? " (after modifiers)" : ""} by ${deployedPts-_effLimit}.`);
   if(!bgViol.ok) {
     const offenders = (army.battleGroups||[]).slice(0,bgCount)
       .filter(bg => bgViol.violatingIds.has(bg.id))
@@ -6178,13 +6582,15 @@ function renderArmyDetail() {
             const stepBtn = (lbl, d, dis) => `<button onclick="changeFPEntryQty('${army.id}','${bg.id}','${e.id}',${d})" ${dis?"disabled":""} style="width:20px;height:20px;border-radius:50%;border:none;background:var(--surface-raised);color:var(--text-bright);font-size:13px;line-height:20px;text-align:center;cursor:${dis?"default":"pointer"};opacity:${dis?".3":"1"}">${lbl}</button>`;
             const stepper = `<span style="display:inline-flex;align-items:center;gap:4px">${stepBtn("&minus;",-1,eqty<=1)}<span style="font-weight:bold;font-size:12px;min-width:18px;text-align:center">&times;${eqty}</span>${stepBtn("+",1,false)}</span>`;
             const offFacStrip = offFac ? `<div style="padding:4px 8px;border-radius:4px;background:#1a0505;border:1px solid #ef535066;font-size:10px;color:#ef9a9a;margin-bottom:4px"><i class="fa-solid fa-triangle-exclamation" style="color:#ef5350;margin-right:3px"></i>Faction doesn't match the army restriction.</div>` : "";
-            const canMechFP = (u.class==="inf"||u.class==="fg");
+            const fpTN = transportNouns();
+            const canMechFP = !!GAME.transport.canRide(u.class, u);
             const fpTU = e.transport ? unitById(e.transport) : null;
             const fpMechBtn = canMechFP
-              ? `<button class="trait-edit-btn" onclick="openTransportPickerFP('${army.id}','${bg.id}','${e.id}')" title="Mechanized transport"${fpTU?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid fa-truck"></i> ${fpTU?`${mechanizedCount(u,fpTU,e.unitType)}&times; ${esc(fpTU.name)}`:"Mechanize"}</button>`
+              ? `<button class="trait-edit-btn" onclick="openTransportPickerFP('${army.id}','${bg.id}','${e.id}')" title="${esc(fpTN.paired)} transport"${fpTU?` style="border-color:#66bb6a55;color:#66bb6a;background:#0e1a0e"`:""}><i class="fa-solid ${esc(fpTN.icon)}"></i> ${fpTU?`${mechanizedCount(u,fpTU,e.unitType)}&times; ${esc(fpTU.name)}`:esc(fpTN.action)}</button>`
               : "";
+            const fpInstBtn = instanceBtnHTML(u, e.mods, `openInstanceEditorFP('${army.id}','${bg.id}','${e.id}')`);
             const actions = `${offFacStrip}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-              <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${stepper}<span style="font-size:10px;color:var(--text-muted)">${pts} pts</span>${fpMechBtn}</span>
+              <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${stepper}<span style="font-size:10px;color:var(--text-muted)">${pts} pts</span>${fpMechBtn}${fpInstBtn}</span>
               <button class="trait-edit-btn" style="border-color:#8b000066;color:#ef5350;background:#2a0a0a" onclick="removeFPEntry('${army.id}','${bg.id}','${e.id}')">Remove</button>
             </div>`;
             if (fpTU) return mechPairCardHTML(u, fpTU, mechanizedCount(u, fpTU, e.unitType), actions, e.unitType||"unit");
@@ -6383,6 +6789,7 @@ function renderArmyDetail() {
     </div>
     ${armyIconPickerHTML}
     ${army.notes?`<div style="background:#0d0f14;border:1px solid #1e2530;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#8b949e;line-height:1.6;font-style:italic">${esc(army.notes).replace(/\n/g,"<br>")}</div>`:""}
+    ${_armyModifiersHTML(army)}
     <div class="info-strip" style="${overPtsLimit?"border-color:#ef535055":""}">
       <div>
         <div class="info-strip-label">Deployed</div>
@@ -6753,6 +7160,26 @@ ${bodyContent}
 }
 
 // ── Army print ────────────────────────────────────────────
+// Print block for the army's circumstance-modifier stack (empty when none).
+function _printModifiersHTML(army, pal) {
+  const active = armyModifiers(army);
+  if (!active.length) return "";
+  const rows = active.map(am => {
+    const def = modifierDef(am.key);
+    const label = def ? (def.label || def.key) : am.key;
+    const n = (am.n || 1) > 1 ? ` ×${am.n}` : "";
+    const effects = def ? (def.effects || []).map(ef =>
+      `<div style="font-size:11px;color:${pal.mutedText};line-height:1.5">&bull; ${_modEffectSummary(ef)}</div>`).join("") : "";
+    return `<div style="margin-bottom:6px">
+      <span style="font-weight:700;font-size:12px;color:${pal.pageText}">${esc(label)}${n}</span>
+      ${am.note ? `<span style="font-size:11px;color:${pal.mutedText};font-style:italic"> - ${esc(am.note)}</span>` : ""}
+      ${effects}</div>`;
+  }).join("");
+  return `<div style="padding:10px 14px;background:${pal.tfRowBg};border:1px solid ${pal.cardBorder};border-radius:6px;margin-bottom:16px">
+    <div style="font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:${pal.mutedText};margin-bottom:6px">Circumstances</div>
+    ${rows}</div>`;
+}
+
 function _buildArmyPrintContent(army, pal, gray) {
   _ensureBGs(army);
   const fp          = isFreePick(army);
@@ -6814,6 +7241,7 @@ function _buildArmyPrintContent(army, pal, gray) {
       </div>
     </div>
     ${army.notes?`<div style="padding:10px 14px;background:${pal.tfRowBg};border:1px solid ${pal.cardBorder};border-radius:6px;margin-bottom:16px;font-size:12px;color:${pal.mutedText};line-height:1.6;font-style:italic">${esc(army.notes).replace(/\n/g,"<br>")}</div>`:""}
+    ${_printModifiersHTML(army, pal)}
     ${!fp?`<div style="margin-bottom:16px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;color:${pal.sectionHead};border-bottom:2px solid ${pal.accentLine};padding-bottom:4px;margin-bottom:10px">Task Forces</div>
       ${tfRows}
@@ -6831,6 +7259,14 @@ function _buildArmyPrintContent(army, pal, gray) {
     const hdrBg   = gray ? "#e0e0e0" : (sd?.color ? sd.color + "0e" : "#edf2fb");
     const hdrBord = gray ? "#bbb"    : (sd?.color ? sd.color + "55" : "#c0cce8");
 
+    // Instance-mods line on print cards (gated: empty unless the pack
+    // declares instance fields and the slot carries mods).
+    const _pModsBadge = (u, mods) => {
+      const badges = instanceBadges(u, mods);
+      return badges.length
+        ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${gray?"#55555518":"#7eb3ff18"};color:${gray?"#555":"#4a7ab8"};border:1px solid ${gray?"#55555544":"#7eb3ff44"}">${badges.map(esc).join(" · ")}</span>`
+        : "";
+    };
     const withTransport = (carrier, viewType, tu, badgeHTML, role) => {
       const sup = role === "support" ? _pSupportAdjusted(carrier, viewType, tu) : null;
       if (!tu) return [{html: _pUnitCard(carrier, viewType, badgeHTML||"", sup != null ? {ptsVal: sup} : {}, pal, gray), full: false}];
@@ -6842,7 +7278,7 @@ function _buildArmyPrintContent(army, pal, gray) {
         if (!u) return [];
         const qty = e.qty || 1;
         const tu = e.transport ? unitById(e.transport) : null;
-        return Array.from({length:qty}).flatMap(() => withTransport(u, e.unitType||"unit", tu, ""));
+        return Array.from({length:qty}).flatMap(() => withTransport(u, e.unitType||"unit", tu, _pModsBadge(u, e.mods)));
       } else {
         const tf   = state.taskForces.find(t=>t.id===e.tfId);
         const slot = tf && (tf.units||[]).find(s=>s.id===e.slotId);
@@ -6855,7 +7291,8 @@ function _buildArmyPrintContent(army, pal, gray) {
           ? `<span style="display:inline-flex;align-items:center;gap:3px;flex-wrap:wrap"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${tfColor}18;color:${tfColor};border:1px solid ${tfColor}44">${esc(tf.name)}</span><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${pal.assetColor}18;color:${pal.assetColor};border:1px solid ${pal.assetColor}44"><i class="fa-solid fa-chess" style="font-size:7px;margin-right:2px"></i>${esc(asset.name)}</span></span>`
           : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:bold;background:${tfColor}18;color:${tfColor};border:1px solid ${tfColor}44">${esc(tf.name)}</span>`;
         const tu = slot.transport ? unitById(slot.transport) : null;
-        return Array.from({length:qty}).flatMap(() => withTransport(u, slot.unitType||"unit", tu, tfBadge, slot.role));
+        const modsBadge = _pModsBadge(u, slot.mods);
+        return Array.from({length:qty}).flatMap(() => withTransport(u, slot.unitType||"unit", tu, tfBadge + modsBadge, slot.role));
       }
     });
 
@@ -7120,9 +7557,9 @@ function addFPUnit(unitId, unitType) {
   bg.entries = bg.entries || [];
   const resolvedType = unitType || "unit";
   const addQty = Math.max(1, fpAddQty|0);
-  // Never merge into a mechanized entry - the new copies have no transport
-  // and would otherwise be silently charged for one.
-  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === resolvedType && !e.transport);
+  // Never merge into a mechanized or instance-modded entry - the new copies
+  // have no transport/mods and would otherwise silently adopt them.
+  const existing = bg.entries.find(e => e.unitId === unitId && e.unitType === resolvedType && !e.transport && !e.mods);
   if(existing) {
     existing.qty = (existing.qty || 1) + addQty;
   } else {
@@ -7148,6 +7585,8 @@ function changeFPEntryQty(armyId, bgId, entryId, delta) {
   if(!entry) return;
   const nq = (entry.qty||1) + delta;
   if(nq < 1) return;
+  const eu = unitById(entry.unitId);
+  if (nq > 1 && eu && slotHasUniqueInstance(eu, entry.mods)) return;
   entry.qty = nq;
   saveState();
   renderArmyDetail();
@@ -7225,7 +7664,7 @@ function openEditArmyModal(id) {
 
 function _refreshArmyFactionSelect() {
   const sel = document.getElementById("army-faction");
-  const builtIn = [["","No Faction"],["standard","Standard"],["precursor","Precursor"],["soulless","Soulless"],["swarm","Swarm"],["warrior","Warrior"]];
+  const builtIn = [["","No Faction"], ...Object.entries((GAME.factions && GAME.factions.labels) || {})];
   const custom = (state.customFactions||[]).map(cf=>[cf.id, cf.name]);
   const cur = sel.value;
   sel.innerHTML = [...builtIn,...custom,["any","Any Faction"]].map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join("");
